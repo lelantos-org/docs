@@ -39,6 +39,10 @@ jobs:
       - run: npm run format:check
       - run: npm run lint
 
+      # Prose gate. The dictionary is .cspell/project-words.txt; a word that
+      # belongs there is domain vocabulary, not a typo waved through.
+      - run: npm run check:spell
+
       # Generates the reference, then runs three gates before building:
       #   check:api-coverage — every public export is documented
       #   check:nav          — every guide page is reachable from the sidebar

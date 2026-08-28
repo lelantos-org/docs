@@ -11,6 +11,8 @@
 //
 // Run: npm run check:nav
 
+// cspell:ignore entr  -- "entr(ies)" collapses the singular/plural message
+
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { guideSidebar } from "../src/.vitepress/config/sidebar.ts";

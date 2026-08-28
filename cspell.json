@@ -1,0 +1,27 @@
+{
+    "$schema": "https://raw.githubusercontent.com/streetsidesoftware/cspell/main/cspell.schema.json",
+    "version": "0.2",
+    "language": "en-GB,en",
+    "dictionaryDefinitions": [
+        {
+            "name": "lelantos",
+            "path": ".cspell/project-words.txt",
+            "addWords": true
+        }
+    ],
+    "dictionaries": ["lelantos", "typescript", "node", "softwareTerms", "html", "css", "bash"],
+    "ignorePaths": [
+        "node_modules/**",
+        "src/.vitepress/dist/**",
+        "src/.vitepress/cache/**",
+        "src/.vitepress/.temp/**",
+        "src/reference/**",
+        "package-lock.json",
+        ".cspell/**"
+    ],
+    "ignoreRegExpList": [
+        "/0x[0-9a-fA-F]+/",
+        "/\\b(?:lelantos|sswap)[0-9][0-9a-z]*/",
+        "/\\\\[bBwWsSdDnrtu]/"
+    ]
+}

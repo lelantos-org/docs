@@ -3,7 +3,7 @@
     "version": "0.0.0",
     "private": true,
     "type": "module",
-    "description": "Developer documentation for @lelantos-org/sdk — https://docs.lelantos.xyz",
+    "description": "Developer documentation for @lelantos-org/sdk \u2014 https://docs.lelantos.xyz",
     "license": "MIT",
     "engines": {
         "node": ">=24.0.0"
@@ -13,17 +13,19 @@
         "check:api-coverage": "node scripts/check-api-coverage.mjs",
         "check:nav": "node scripts/check-nav.mjs",
         "check:fences": "node scripts/check-fences.mjs",
+        "check:spell": "cspell --no-progress \"src/**/*.md\" \"src/.vitepress/**/*.ts\" \"scripts/**/*.mjs\" \"*.md\"",
         "dev": "npm run gen:reference && vitepress dev src",
         "build": "npm run gen:reference && npm run check:api-coverage && npm run check:nav && npm run check:fences && vitepress build src",
         "preview": "vitepress preview src",
         "format": "biome format --write .",
         "format:check": "biome format .",
         "lint": "biome lint .",
-        "verify": "npm run format:check && npm run lint && npm run build"
+        "verify": "npm run format:check && npm run lint && npm run check:spell && npm run build"
     },
     "devDependencies": {
         "@biomejs/biome": "2.4.0",
         "@shikijs/vitepress-twoslash": "^3.2.1",
+        "cspell": "^10.1.1",
         "typedoc": "^0.28.1",
         "typedoc-plugin-markdown": "^4.4.2",
         "typedoc-vitepress-theme": "^1.1.2",

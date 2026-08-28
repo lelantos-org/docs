@@ -1,0 +1,39 @@
+# Project dictionary for the Lelantos docs.
+#
+# Domain vocabulary and third-party names only. If a word here is not one of
+# those, it is probably a typo that was whitelisted to make the check pass —
+# remove it and fix the prose instead.
+
+# ── protocol ──────────────────────────────────────────────────────────────
+bech
+keccak
+lelantos
+localnet
+MASP
+unshield
+unshields
+unshielding
+
+# ── cryptography ──────────────────────────────────────────────────────────
+Groth
+Jubjub
+Sfrt
+
+# ── services and tooling ──────────────────────────────────────────────────
+metaquoter
+shikijs
+snarkjs
+Twoslash
+viem
+
+# ── web platform ──────────────────────────────────────────────────────────
+OPFS
+proxiable
+
+# ── general ───────────────────────────────────────────────────────────────
+checkpointed
+forgeable
+passthroughs
+
+# ── cited authors ─────────────────────────────────────────────────────────
+Tramèr
