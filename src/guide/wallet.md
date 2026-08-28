@@ -100,7 +100,9 @@ const wallet = await Wallet.create(
 
 ::: warning `proverPaths` and `proverArtifacts` are different shapes
 `WalletConfig.proverPaths` is `{ wasmPath, zkeyPath }`. `connect({ proverArtifacts })` is `{ circuit, zkey }`. They name the same two files; only the keys differ by entry point.
-::: `fmdUrl` is required unless you supply a `noteSource`, `relayerUrl` unless you supply a `submitter`, and `proverPaths` unless you supply a `prover`. See [Pluggable interfaces](/guide/interfaces).
+:::
+
+`fmdUrl` is required unless you supply a `noteSource`, `relayerUrl` unless you supply a `submitter`, and `proverPaths` unless you supply a `prover`. See [Pluggable interfaces](/guide/interfaces).
 
 ::: warning `treeDepth` must match the deployed contract and circuit build
 A tree of the wrong depth produces paths and a root of that depth. Nothing errors locally — the proof simply fails to verify on chain.
@@ -134,7 +136,7 @@ import { connect, generateMnemonic } from "@lelantos-org/sdk";
 const mnemonic = generateMnemonic({ words: 24 });
 const nsk = 1n;
 const rpcUrl = "https://eth.example.com";
-const privateKey = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" as const;
+const privateKey: `0x${string}` = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 // ---cut---
 // One valid chain layer, but two key sources — the union rejects it.
 await connect({ network: "mainnet", mnemonic, nsk, privateKey, rpcUrl });
