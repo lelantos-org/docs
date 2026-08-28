@@ -1,0 +1,137 @@
+/* Lelantos docs palette.
+ *
+ * Light values are ported verbatim from webapp-ui/src/styles/tokens.css so the
+ * docs, the wallet, and the explorer read as one product. That file is
+ * light-only, so the dark side keeps VitePress's default neutrals and overrides
+ * only the brand triplet — inventing a dark palette here would create a fourth
+ * source of truth that the apps don't share.
+ */
+
+/* Surfaces, text and lines are the LIGHT palette only.
+ *
+ * Scoped to `:not(.dark)` rather than plain `:root`, because `:root` and
+ * `.dark` carry the same specificity and this file is imported after
+ * VitePress's own stylesheet — so a `:root` declaration here would win in
+ * *both* themes and paint dark mode with light surfaces. Everything below in
+ * `:root` is safe unscoped: the `.dark` block overrides each of those, or the
+ * value is theme-agnostic.
+ */
+:root:not(.dark) {
+    /* ── surfaces ────────────────────────────────────────────────────────── */
+    --vp-c-bg: #f2f3f7;
+    --vp-c-bg-alt: #ffffff;
+    --vp-c-bg-soft: #f9fafc;
+    --vp-c-bg-elv: #ffffff;
+
+    /* ── text ────────────────────────────────────────────────────────────── */
+    --vp-c-text-1: #191922;
+    --vp-c-text-2: #43434f;
+    --vp-c-text-3: #76768a;
+
+    /* ── lines ───────────────────────────────────────────────────────────── */
+    --vp-c-divider: #e5e6ee;
+    --vp-c-border: #d2d4e0;
+    --vp-c-gutter: #e5e6ee;
+}
+
+:root {
+    /* ── brand (shared, both themes) ─────────────────────────────────────── */
+    --vp-c-brand-1: #4f46e5;
+    --vp-c-brand-2: #6366f1;
+    --vp-c-brand-3: #c7d2fe;
+    --vp-c-brand-soft: rgba(79, 70, 229, 0.14);
+
+    /* ── semantic ────────────────────────────────────────────────────────── */
+    --vp-c-warning-1: #d97706;
+    --vp-c-warning-soft: rgba(217, 119, 6, 0.14);
+    --vp-c-danger-1: #dc2626;
+    --vp-c-danger-soft: rgba(220, 38, 38, 0.14);
+
+    /* ── type ────────────────────────────────────────────────────────────── */
+    --vp-font-family-base:
+        -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, "Helvetica Neue", Arial,
+        sans-serif;
+    --vp-font-family-mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+
+    /* ── buttons ─────────────────────────────────────────────────────────────
+   * VitePress derives --vp-button-brand-bg from --vp-c-brand-3, which is our
+   * pale lavender (#c7d2fe) — correct as a tint for badges and custom blocks,
+   * far too washed out for the hero CTA. Point the button at the real indigo
+   * instead, and darken rather than lighten on hover.
+   */
+    --vp-button-brand-border: transparent;
+    --vp-button-brand-text: #ffffff;
+    --vp-button-brand-bg: #4f46e5;
+    --vp-button-brand-hover-border: transparent;
+    --vp-button-brand-hover-text: #ffffff;
+    --vp-button-brand-hover-bg: #4338ca;
+    --vp-button-brand-active-border: transparent;
+    --vp-button-brand-active-text: #ffffff;
+    --vp-button-brand-active-bg: #3730a3;
+
+    /* The secondary CTA reads as indigo-on-tint, so the pair looks related
+     rather than "one button and one grey rectangle". */
+    --vp-button-alt-border: #d5d8ea;
+    --vp-button-alt-text: #4338ca;
+    --vp-button-alt-bg: #ffffff;
+    --vp-button-alt-hover-border: #4f46e5;
+    --vp-button-alt-hover-text: #3730a3;
+    --vp-button-alt-hover-bg: #eef0fb;
+    --vp-button-alt-active-border: #4f46e5;
+    --vp-button-alt-active-text: #3730a3;
+    --vp-button-alt-active-bg: #e3e6f8;
+
+    /* ── shape ───────────────────────────────────────────────────────────── */
+    --vp-code-block-radius: 8px;
+
+    /* Home hero: the brand indigo, matching the wallet's accent ramp. */
+    --vp-home-hero-name-color: transparent;
+    --vp-home-hero-name-background: linear-gradient(120deg, #4f46e5, #6366f1);
+    --vp-home-hero-image-background-image: linear-gradient(
+        -45deg,
+        rgba(79, 70, 229, 0.35),
+        rgba(99, 102, 241, 0.18)
+    );
+    --vp-home-hero-image-filter: blur(48px);
+}
+
+.dark {
+    /* Brand lightened for contrast on dark surfaces — #4f46e5 on VitePress's
+     near-black fails WCAG AA for body-size text. */
+    --vp-c-brand-1: #a5b4fc;
+    --vp-c-brand-2: #818cf8;
+    --vp-c-brand-3: #4f46e5;
+    --vp-c-brand-soft: rgba(129, 140, 248, 0.16);
+
+    --vp-c-warning-1: #fbbf24;
+    --vp-c-warning-soft: rgba(251, 191, 36, 0.16);
+    --vp-c-danger-1: #f87171;
+    --vp-c-danger-soft: rgba(248, 113, 113, 0.16);
+
+    --vp-home-hero-name-background: linear-gradient(120deg, #a5b4fc, #818cf8);
+
+    /* On dark, a saturated indigo fill goes muddy; lift it and keep the text
+     dark so the CTA still carries the most contrast on the page. */
+    --vp-button-brand-text: #12121a;
+    --vp-button-brand-bg: #a5b4fc;
+    --vp-button-brand-hover-text: #12121a;
+    --vp-button-brand-hover-bg: #c7d2fe;
+    --vp-button-brand-active-text: #12121a;
+    --vp-button-brand-active-bg: #818cf8;
+
+    --vp-button-alt-border: #3a3a52;
+    --vp-button-alt-text: #c7d2fe;
+    --vp-button-alt-bg: transparent;
+    --vp-button-alt-hover-border: #818cf8;
+    --vp-button-alt-hover-text: #e0e5ff;
+    --vp-button-alt-hover-bg: rgba(129, 140, 248, 0.12);
+    --vp-button-alt-active-border: #818cf8;
+    --vp-button-alt-active-text: #e0e5ff;
+    --vp-button-alt-active-bg: rgba(129, 140, 248, 0.2);
+}
+
+/* Twoslash tooltips inherit the code font so a hovered type reads as code. */
+.twoslash-popup-code,
+.twoslash-popup-docs {
+    font-family: var(--vp-font-family-mono);
+}

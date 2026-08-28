@@ -1,0 +1,17 @@
+{
+    // TypeDoc-only. The reference is generated from the SDK's shipped .d.ts
+    // files, and TypeDoc requires every entry point to be covered by a tsconfig's
+    // `include`. The root tsconfig.json deliberately does not reach into
+    // node_modules, so this keeps that concern separate.
+    "compilerOptions": {
+        "target": "ES2023",
+        "module": "nodenext",
+        "moduleResolution": "nodenext",
+        "lib": ["ES2023", "DOM"],
+        "strict": true,
+        "skipLibCheck": true,
+        "noEmit": true,
+        "types": []
+    },
+    "include": ["node_modules/@lelantos-org/sdk/dist/**/*.d.ts"]
+}

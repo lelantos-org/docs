@@ -1,0 +1,14 @@
+node_modules/
+.sdk/
+dist/
+src/reference/
+src/.vitepress/cache/
+src/.vitepress/dist/
+.DS_Store
+
+# Local registry credentials — never commit
+.env.local
+
+# Scratch dir for ad-hoc snippet typechecking
+.tc-snips/
+.tc.mjs

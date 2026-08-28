@@ -1,0 +1,63 @@
+name: Deploy docs
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# GITHUB_TOKEN needs packages:read to install @lelantos-org/sdk from
+# GitHub Packages, and pages/id-token to publish.
+permissions:
+  contents: read
+  packages: read
+  pages: write
+  id-token: write
+
+# Never run two deploys at once, but let an in-flight one finish so a
+# half-published site is not left behind.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          registry-url: https://npm.pkg.github.com
+          scope: "@lelantos-org"
+
+      - run: npm ci
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - run: npm run format:check
+      - run: npm run lint
+
+      # Generates the reference, then runs three gates before building:
+      #   check:api-coverage — every public export is documented
+      #   check:nav          — every guide page is reachable from the sidebar
+      #   check:fences       — every ts snippet is typechecked or explicitly skipped
+      # Twoslash compiles each snippet during the build itself, so a stale
+      # example fails here rather than shipping.
+      - run: npm run build
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: src/.vitepress/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

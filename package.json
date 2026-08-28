@@ -1,0 +1,36 @@
+{
+    "name": "@lelantos-org/docs",
+    "version": "0.0.0",
+    "private": true,
+    "type": "module",
+    "description": "Developer documentation for @lelantos-org/sdk — https://docs.lelantos.xyz",
+    "license": "MIT",
+    "engines": {
+        "node": ">=24.0.0"
+    },
+    "scripts": {
+        "gen:reference": "typedoc",
+        "check:api-coverage": "node scripts/check-api-coverage.mjs",
+        "check:nav": "node scripts/check-nav.mjs",
+        "check:fences": "node scripts/check-fences.mjs",
+        "dev": "npm run gen:reference && vitepress dev src",
+        "build": "npm run gen:reference && npm run check:api-coverage && npm run check:nav && npm run check:fences && vitepress build src",
+        "preview": "vitepress preview src",
+        "format": "biome format --write .",
+        "format:check": "biome format .",
+        "lint": "biome lint .",
+        "verify": "npm run format:check && npm run lint && npm run build"
+    },
+    "devDependencies": {
+        "@biomejs/biome": "2.4.0",
+        "@shikijs/vitepress-twoslash": "^3.2.1",
+        "typedoc": "^0.28.1",
+        "typedoc-plugin-markdown": "^4.4.2",
+        "typedoc-vitepress-theme": "^1.1.2",
+        "typescript": "5.7.3",
+        "vitepress": "^1.6.3"
+    },
+    "dependencies": {
+        "@lelantos-org/sdk": "0.26.0"
+    }
+}

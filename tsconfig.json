@@ -1,0 +1,31 @@
+{
+    // Mirrors sdk/tsconfig.json's strictness so a snippet that typechecks here
+    // typechecks in a consumer's project too. `nodenext` resolution is the point:
+    // it makes Twoslash resolve @lelantos-org/sdk through the package's real
+    // exports map, exactly as a user's editor would.
+    //
+    // Deliberately NOT a `paths` mapping. The exports map is not uniform —
+    // `./errors` resolves to dist/core/errors.d.ts, `./internal` to
+    // dist/internal.d.ts — so a wildcard mapping would silently misresolve.
+    // scripts/prepare-sdk.mjs symlinks node_modules/@lelantos-org/sdk -> .sdk
+    // instead, and resolution falls out for free.
+    "compilerOptions": {
+        "target": "ES2023",
+        "module": "nodenext",
+        "moduleResolution": "nodenext",
+        "lib": ["ES2023", "DOM"],
+        "strict": true,
+        "noUncheckedIndexedAccess": true,
+        "exactOptionalPropertyTypes": true,
+        "verbatimModuleSyntax": true,
+        "esModuleInterop": true,
+        "skipLibCheck": true,
+        "forceConsistentCasingInFileNames": true,
+        "resolveJsonModule": true,
+        "noEmit": true,
+        // Docs snippets elide unused bindings for readability.
+        "noUnusedLocals": false,
+        "noUnusedParameters": false
+    },
+    "include": ["src/.vitepress/**/*.ts", "scripts/**/*.ts"]
+}

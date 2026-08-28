@@ -1,0 +1,146 @@
+/* ── footer ───────────────────────────────────────────────────────────────
+ * Ported from explorer-ui/src/styles/layout.css (.ftr and friends) so the docs
+ * carry the same row as the explorer and the wallet. The tokens it referenced
+ * there (--line, --bg-2, --accent, --fg-mute, --t-fast) are mapped onto their
+ * VitePress equivalents rather than redeclared.
+ *
+ * The doubled `.VPFooter.VPFooter` is deliberate: VitePress ships these rules
+ * scoped as `.VPFooter[data-v-…]` (specificity 0,2,0), which outranks a plain
+ * `.VPFooter` no matter how late this file loads. Repeating the class matches
+ * that weight so cascade order decides, and this file is last.
+ */
+/* The row sits on the page surface, not a tinted band.
+ *
+ * explorer-ui puts its footer on `--bg-2`, one step lighter than the page. That
+ * reads as a distinct band there, where the footer follows tinted content
+ * cards. Here the nav, the content column and the footer are the only three
+ * full-width surfaces, so a lighter footer makes the top and bottom of the page
+ * disagree. Matching `--vp-c-bg` — the same token the nav resolves to — leaves
+ * the divider as the only thing marking the boundary, which is how the rest of
+ * the site separates its chrome.
+ */
+.VPFooter.VPFooter {
+    border-top: 1px solid var(--vp-c-divider);
+    background: var(--vp-c-bg);
+    padding: 0;
+}
+
+/* VitePress hides the footer on sidebar pages; explorer-ui shows its row on
+ * every page, so restore it.
+ *
+ * VPFooter is a sibling of VPContent, not a child, so it spans the full
+ * viewport and the sidebar merely paints over its left edge. Centring the row
+ * would then land it on the viewport centre rather than the content column's,
+ * which reads as off-centre. Mirror the offsets VitePress applies to
+ * `.VPContent.has-sidebar` and `.VPSidebar` so the row centres over the text.
+ */
+.VPFooter.VPFooter.has-sidebar {
+    display: block;
+}
+
+@media (min-width: 960px) {
+    .VPFooter.VPFooter.has-sidebar {
+        padding-left: var(--vp-sidebar-width);
+    }
+}
+
+@media (min-width: 1440px) {
+    .VPFooter.VPFooter.has-sidebar {
+        padding-left: calc(
+            (100% - (var(--vp-layout-max-width) - 64px)) /
+            2 +
+            var(--vp-sidebar-width) -
+            32px
+        );
+    }
+}
+
+/* Zero the default footer padding so `.ftr` owns its spacing, but keep the
+   container's `margin: 0 auto` — that is what centres the row in its column. */
+.VPFooter.VPFooter .container {
+    margin: 0 auto;
+    max-width: var(--vp-layout-max-width);
+    padding: 0;
+}
+
+.VPFooter.VPFooter .message {
+    margin: 0;
+    padding: 0;
+    line-height: normal;
+}
+
+.VPFooter.VPFooter .ftr {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    width: 100%;
+    padding: 18px 24px;
+    font-size: 13px;
+    color: var(--vp-c-text-2);
+}
+
+.VPFooter.VPFooter .ftr__brand {
+    color: var(--vp-c-brand-1);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+
+.VPFooter.VPFooter .ftr__sep {
+    width: 1px;
+    height: 12px;
+    background: var(--vp-c-border);
+}
+
+.VPFooter.VPFooter .ftr__note,
+.VPFooter.VPFooter .ftr__ver {
+    color: var(--vp-c-text-3);
+}
+
+.VPFooter.VPFooter .ftr__link {
+    display: inline-flex;
+    align-items: center;
+    color: var(--vp-c-text-3);
+    font-weight: 400;
+    text-decoration: none;
+    transition: color 120ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.VPFooter.VPFooter .ftr__link:hover {
+    color: var(--vp-c-brand-1);
+}
+
+/* Present but recessive: wanted when reporting a bug, noise the rest of the
+   time. Dropped on narrow screens, where the row has no space to spare. */
+.VPFooter.VPFooter .ftr__ver {
+    font-family: var(--vp-font-family-mono);
+    font-size: 12px;
+    opacity: 0.7;
+}
+
+/* Below this the row cannot hold the privacy note and the links on one line.
+   Left to wrap on its own it broke mid-note and stranded the vertical rules at
+   the start of a line, where they read as stray marks rather than separators.
+   So: note onto its own line via `order`, rules dropped, gap separating. */
+@media (max-width: 560px) {
+    .VPFooter.VPFooter .ftr {
+        gap: 6px 12px;
+        padding: 14px 14px calc(14px + env(safe-area-inset-bottom, 0px));
+        font-size: 12px;
+    }
+
+    .VPFooter.VPFooter .ftr__sep,
+    .VPFooter.VPFooter .ftr__ver {
+        display: none;
+    }
+
+    .VPFooter.VPFooter .ftr__note {
+        order: 2;
+        flex: 1 1 100%;
+        text-align: center;
+        text-wrap: balance;
+        line-height: 1.6;
+        font-size: 11px;
+    }
+}
