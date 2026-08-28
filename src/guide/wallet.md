@@ -133,10 +133,11 @@ await wallet.dispose();
 import { connect, generateMnemonic } from "@lelantos-org/sdk";
 const mnemonic = generateMnemonic({ words: 24 });
 const nsk = 1n;
-const rpcUrl = "http://localhost:8545";
+const rpcUrl = "https://eth.example.com";
+const privateKey = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" as const;
 // ---cut---
-// Two key sources — the union rejects it.
-await connect({ network: "anvil", mnemonic, nsk, rpcUrl });
+// One valid chain layer, but two key sources — the union rejects it.
+await connect({ network: "mainnet", mnemonic, nsk, privateKey, rpcUrl });
 ```
 
 That error is asserted by this site's build: if the union ever stopped rejecting it, the page would fail to compile.
