@@ -11,8 +11,10 @@ Nine injection points on `WalletConfig`. Only `chain` is required; every other h
 | `NullifierStore` | built from the nullifier chunk feed | pre-seeded spent set, shared cache |
 | `Submitter` | `HttpRelayerSubmitter` | multi-relayer race, direct on-chain submit, test mock |
 | `Prover` | `WasmProver` (snarkjs fallback; `useWasmProver: false` opts out) | Web Worker prover, mock |
-| `CoinSelector` | `SfrtCoinSelector` | largest-first, Penumbra planner, deterministic test stub |
+| `CoinSelector` | `SfrtCoinSelector` | `DenominationCoinSelector`, largest-first, Penumbra planner, deterministic test stub |
 | `Scanner` | `LocalScanner` | `WorkerPoolScanner` for off-main-thread trial decryption |
+
+`DenominationCoinSelector` wraps SFRT rather than replacing it, preferring a cover that pays the target exactly — worth injecting wherever withdrawals are denominated. See [Denominations](/guide/denominations#selecting-for-zero-change).
 
 `TreeStore` and `NullifierStore` are usually configured through `treePersistence` / `nullifierPersistence` rather than replaced outright — see [Syncing](/guide/sync).
 

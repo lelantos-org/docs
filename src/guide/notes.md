@@ -95,6 +95,8 @@ if (result.plan === "direct") {
 
 The default selector is **SFRT** (Smallest-First, Random Tiebreak). It avoids the largest-first balance-ordering fingerprint and drains dust over time — both privacy properties, not performance ones.
 
+`DenominationCoinSelector` wraps it and prefers a cover that pays the target exactly, which produces no change note at all. Inject it where withdrawals are denominated — see [Denominations](/guide/denominations).
+
 ### The spend cooldown
 
 `cooldownBlocks` defaults to 1 and needs both `tipBlock` and a per-note `firstSeenBlock` to do anything; without them it is inert. One block is enough to break the same-block change-link heuristic, where a change note spent in the block that created it ties the two spends together for an observer counting leaves.
@@ -158,3 +160,4 @@ await wallet.dispose(); // release scanner and prover workers
 
 - [Custom storage](/guide/storage) — persisting the note cache
 - [Pluggable interfaces](/guide/interfaces) — replacing the selector
+- [Denominations](/guide/denominations) — how change is shaped, and `redenominate`

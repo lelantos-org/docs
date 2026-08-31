@@ -57,14 +57,15 @@ declare const quote: { minOut: bigint };
 // ---cut-end---
 import { sizeBNote } from "@lelantos-org/sdk/wallet";
 
-const feeBps = await chain.fetchFeeBps();
-const { scale } = await chain.fetchAsset(asset);
-const credited = sizeBNote(quote.minOut, scale, feeBps);
+const { scale, depositBps } = await chain.fetchAsset(asset);
+const credited = sizeBNote(quote.minOut, scale, depositBps);
 //    ^?
 ```
 
+Leg 2 mints the B-note as a deposit, so the rate here is the **out** asset's `depositBps` — not its `withdrawBps`, and not the in-asset's rate. Both ride on the registry entry; there is no pool-wide fee to read.
+
 ::: danger Do not re-derive this
-The obvious closed form — `minOut * BPS / (scale * (BPS + feeBps))` — is only the lower bound the search starts from. It lands *below* `minOut` whenever the division is inexact: wrong on screen, and reverting on chain if used to size a transaction.
+The obvious closed form — `minOut * BPS / (scale * (BPS + depositBps))` — is only the lower bound the search starts from. It lands *below* `minOut` whenever the division is inexact: wrong on screen, and reverting on chain if used to size a transaction.
 :::
 
 ## Reading the receipt

@@ -3,7 +3,7 @@
     "version": "0.0.0",
     "private": true,
     "type": "module",
-    "description": "Developer documentation for @lelantos-org/sdk \u2014 https://docs.lelantos.xyz",
+    "description": "Developer documentation for @lelantos-org/sdk — https://docs.lelantos.xyz",
     "license": "MIT",
     "engines": {
         "node": ">=24.0.0"
@@ -33,6 +33,6 @@
         "vitepress": "^1.6.3"
     },
     "dependencies": {
-        "@lelantos-org/sdk": "0.26.0"
+        "@lelantos-org/sdk": "0.32.0"
     }
 }

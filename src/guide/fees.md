@@ -5,16 +5,65 @@ Three separate costs can apply to one operation, and they are charged by three d
 | Fee | Charged by | Paid in | Visible on chain |
 |---|---|---|---|
 | **Gas** | the network | native ETH | yes |
-| **Protocol fee** | the MASP contract | the asset being moved, taken from `publicOut` | yes, on unshield |
+| **Protocol fee** | the MASP contract | the asset being moved — added to a shield, skimmed from an unshield | yes |
 | **Shielded relayer fee** | the relayer | any asset it quotes, as an output note | no |
 
 Gas is only your concern on the paths your own signer broadcasts — a deposit, or a withdraw you submit directly. On relayed spends the relayer pays gas and recovers it through the shielded fee.
 
 ## The protocol fee
 
-`chain.fetchFeeBps()` returns the rate in basis points; `0` disables it. On a withdraw the contract sends `outAmt - fee` to the recipient and keeps `fee` in the treasury, so `sent` on the receipt is the **gross** amount, not what the recipient receives.
+Rates are **per asset and per leg**. There is no pool-wide rate, so nothing fetches one: both numbers are resolved with the asset and ride on `AssetInfo`.
 
-Override it for a chain whose rate you already hold with `WalletConfig.feeBps`, which takes precedence over the adapter call.
+| Rate | Charged on | How |
+|---|---|---|
+| `depositBps` | a shield — `deposit`, and a swap's re-shield leg | **added on top of** the principal |
+| `withdrawBps` | an unshield — `withdraw`, and a swap's first leg | **skimmed from** the gross leaving the pool |
+
+A pool can price the two apart — subsidising deposits to fill itself while still charging on exits — so passing one where the other belongs is a real misquote, not a rounding difference.
+
+```ts twoslash
+// ---cut-start---
+import { connect } from "@lelantos-org/sdk";
+const wallet = await connect({
+    privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+    network: "anvil",
+    rpcUrl: "http://localhost:8545",
+});
+// ---cut-end---
+import { withdrawNetFor } from "@lelantos-org/sdk";
+
+const usdc = await wallet.asset("USDC");
+usdc.depositBps; // shield rate, in basis points
+usdc.withdrawBps; // unshield rate
+
+// What a 1000-unit gross withdrawal actually delivers, in ERC-20 base units.
+const { net, fee } = withdrawNetFor(1000n, usdc);
+//      ^?
+```
+
+`withdrawNetFor` reads `withdrawBps`, `scale`, `index` and `yieldEnabled` off the asset, which is why it takes the asset rather than a rate: the yield branch rounds at a different point and misreports the net by up to a unit if `yieldEnabled` is assembled by hand and left out.
+
+::: warning A withdrawal's `amount` is the gross
+`MASP._unshieldLeg` sends `outAmt - fee` to the recipient and keeps `fee`, so `WithdrawOptions.amount` is what leaves the pool, not what arrives. `wallet.previewWithdraw` shows both figures — see [Withdraw](/guide/withdraw#what-the-recipient-actually-receives).
+:::
+
+### Overriding the rates
+
+`feeBps` on `connect()` and `WalletConfig` replaces what the pool reports, for every asset. A bare `bigint` sets both legs; the pair prices them apart.
+
+```ts twoslash
+// ---cut-start---
+import { connect } from "@lelantos-org/sdk";
+// ---cut-end---
+await connect({
+    privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+    network: "anvil",
+    rpcUrl: "http://localhost:8545",
+    feeBps: { depositBps: 0n, withdrawBps: 25n },
+});
+```
+
+It is applied when an `AssetInfo` is resolved, so deposit, withdraw, swap and `previewWithdraw` all see the same numbers and cannot drift apart. Reach for it only where the SDK cannot read the real rates — a fork, a fixture, a registry that is not deployed yet. Against a live pool it misquotes the moment the owner changes a rate.
 
 ## The shielded relayer fee
 
@@ -72,7 +121,7 @@ await wallet.withdraw({ to, asset: "WETH", amount: "0.5", feeAsset: "USDC" });
 ```
 
 ::: danger A cross-asset fee needs a wider circuit
-It costs two extra slots — an input note of the fee asset, and an output for its change. That requires `nOut >= 4`, which the default 4×4 shape satisfies and a pool on `TRANSACT_3X3` does not.
+It costs two extra slots — an input note of the fee asset, and an output for its change. That requires `nOut >= 4`, which the only published shape (4×6) satisfies with room to spare.
 
 The relayer must also quote the asset. `/chains` publishes the list, and one it does not quote is rejected before any proving starts.
 :::

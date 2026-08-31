@@ -5,7 +5,7 @@ The `ChainAdapter` is the only part of the SDK that talks to a chain. `ViemChain
 ## What the adapter is responsible for
 
 - **Signing the Permit2 witness** that binds a deposit and its ERC-20 pull into one atomic transaction, so there is no separate `approve`.
-- **Resolving asset metadata** — `scale` from the MASP registry, and `symbol`/`decimals` when it implements `tokenMeta`.
+- **Resolving asset metadata** — `scale`, the asset's two protocol fee rates and its yield index from the MASP registry, and `symbol`/`decimals` when it implements `tokenMeta`.
 - **Broadcasting deposits**, and reading back the escrow state that `cancelDeposit` needs.
 - **Reporting the chain tip**, which is what makes the selector's spend cooldown work at all.
 
@@ -13,7 +13,7 @@ Adapters must be deterministic with respect to their constructor inputs — no h
 
 ## The required surface
 
-Six methods are mandatory. Everything else is optional and feature-probed.
+Five methods are mandatory. Everything else is optional and feature-probed.
 
 <!-- typecheck: skip -->
 ```ts
@@ -24,7 +24,6 @@ class EthersChainAdapter implements ChainAdapter {
     async payerAddress(): Promise<string> { ... }
     async maspAddress(): Promise<string> { ... }
     async fetchAsset(id: bigint): Promise<AssetEntry> { ... }
-    async fetchFeeBps(): Promise<bigint> { ... }
 
     async signPermit2(args: Permit2SignArgs) {
         // Drive your signer to produce the Permit2 witness signature bound
@@ -32,6 +31,8 @@ class EthersChainAdapter implements ChainAdapter {
     }
 }
 ```
+
+`AssetEntry` carries the fee rates: `depositBps` and `withdrawBps`, per asset and per leg. There is no `fetchFeeBps` — it was removed in 0.30, when the contracts moved the rates onto the registry entry. An adapter reading a pool with no yield mixin omits `index` and `yieldEnabled`, which is read as `RAY` and `false`.
 
 ::: tip Why this block is not typechecked
 The `...` bodies are illustrative rather than real implementations. The interface is fully documented in the [reference](/reference/chain/).

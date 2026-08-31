@@ -45,7 +45,9 @@ console.log("balance:", formatAmount(wallet.balance(weth.id), weth, { symbol: tr
 //    throwing when no cover exists.
 await wallet.transfer({ to: peerBech32, amount: 100n, asset: 1n, autoConsolidate: true });
 
-// 6. Unshield back to a public ERC-20 balance.
+// 6. Unshield back to a public ERC-20 balance. `amount` is the gross leaving
+//    the pool — the protocol fee is skimmed out of it, so the recipient gets
+//    slightly less. `wallet.previewWithdraw` reports both figures.
 await wallet.withdraw({ to: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266", amount: 200n, asset: 1n });
 
 // 7. Release scanner and prover workers. Required in any process that

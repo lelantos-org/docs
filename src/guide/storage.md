@@ -25,7 +25,7 @@ import type { NoteStore, NotesFile } from "@lelantos-org/sdk";
 
 class IndexedDbNoteStore implements NoteStore {
     async load(): Promise<NotesFile> {
-        const json = ((await idbGet("lelantos-notes")) as string | undefined) ?? '{"version":2,"notes":[]}';
+        const json = ((await idbGet("lelantos-notes")) as string | undefined) ?? '{"version":3,"notes":[]}';
         return JSON.parse(json);
     }
 
@@ -38,6 +38,12 @@ class IndexedDbNoteStore implements NoteStore {
 ::: danger Round-trip `cursor`
 `NotesFile.cursor` is the resume point for the note feed. A store that drops it — by rebuilding the object, or persisting only `notes` — turns every subsequent sync back into a full re-scan from zero, silently and with no error. The example above preserves it because it serialises the whole file.
 :::
+
+## The file version
+
+The current schema is version 3, which widened `StoredNote.id` from 4 to 16 random bytes. Ids are wallet-local and opaque, but they *are* identities: one keys the nullifier memo, the spent set passed to `markSpent`, and selection's `only` filter, so a collision retires an unrelated note and withholds it from the selector until the next rescan. At 4 bytes that was a birthday problem a real wallet reaches — roughly 1% at 10k notes, which denomination decomposition and per-spend change notes get to.
+
+Migration is automatic: the wallet renumbers a v1 or v2 file on load, logs it on `lelantos:wallet:notes`, and immediately `save()`s the result back through your store. Nothing to call — but a store that silently drops writes, or that reconstructs the object without `version`, makes the renumbering happen again on every load.
 
 `StoredNote` encodes its bigints as decimal strings precisely so the file is plain JSON — no replacer or reviver is needed, and no `bigint` will reach `JSON.stringify` and throw.
 

@@ -103,12 +103,13 @@ const head = await fmd.fetchHead();
 
 Both mirrors are rebuilt from scratch on every fresh wallet, which is wasted bandwidth in any application that outlives a single process. Pass a `treePersistence` and a `nullifierPersistence`: the SDK restores state at startup and saves after each sync.
 
-Each is a two-method interface over any storage you like.
+Each is a small interface over any storage you like: `load` and `save`, plus a `clear` on `TreePersistence` so a tree that has gone wrong can be discarded and rebuilt. The spent set has no equivalent — it only ever grows, so there is nothing to discard.
 
 ```ts twoslash
 // ---cut-start---
 declare function idbGet(k: string): Promise<string | undefined>;
 declare function idbSet(k: string, v: string): Promise<void>;
+declare function idbDel(k: string): Promise<void>;
 // ---cut-end---
 import type {
     NullifierPersistence,
@@ -130,6 +131,13 @@ class IdbTreePersistence implements TreePersistence {
     }
     async save(state: TreeStoreState): Promise<void> {
         await idbSet("lelantos-tree", enc(state));
+    }
+    // Required, not optional. `TreeStore.reset()` repairs a bad tree by
+    // discarding it and rebuilding; a backend that cannot forget would restore
+    // the discarded tree on the next `load()`, leaving the wallet to pay the
+    // rebuild on every spend and only ever log a warning.
+    async clear(): Promise<void> {
+        await idbDel("lelantos-tree");
     }
 }
 

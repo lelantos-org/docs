@@ -32,8 +32,8 @@ const wallet = await connect({
     network: "mainnet",
     rpcUrl,
     proverArtifacts: {
-        circuit: "https://cdn.example.com/transact_4x4.wasm",
-        zkey: "https://cdn.example.com/transact_4x4_final.zkey",
+        circuit: "https://cdn.example.com/4x6.wasm",
+        zkey: "https://cdn.example.com/4x6_final.zkey",
     },
 });
 ```
@@ -92,23 +92,19 @@ Bundlers detect that exact form and emit the worker as its own chunk. A URL asse
 
 ## Where the time goes
 
-`prove()` splits into witness generation and the Groth16 proof. Both are logged at `debug` on `lelantos:prover:wasm`. Measured on an Apple M3 Max (16 threads, Node), median of three warm runs:
+`prove()` splits into witness generation and the Groth16 proof. Both are logged at `debug` on `lelantos:prover:wasm`.
 
-| Shape | Witness | Groth16 | Total |
-|---|---|---|---|
-| 2x2 | 94 ms | 427 ms | ~521 ms |
-| 3x3 | 142 ms | 513 ms | ~656 ms |
-| **4x4** (default) | 190 ms | 735 ms | ~925 ms |
+Cost scales with circuit arity, and the last measured figure is for a shape that no longer ships: on an Apple M3 Max (16 threads, Node, median of three warm runs) the 4x4 shape of SDK 0.26 took ~190 ms for the witness and ~735 ms for the proof, ~925 ms in total. 4x6 is wider, so treat that as a floor rather than an estimate, and measure your own targets from the `debug` log.
 
-Cost scales with arity rather than jumping at the default: 4x4 is ~1.4× a 3x3 proof, for a spend that consumes four notes instead of three.
+::: warning One shape, and it must match the deployed verifier
+`TRANSACT_4X6` — four inputs, six outputs, 69 public-input coefficients, a ~48 MB zkey and a ~4 MB witness circuit. The six outputs are what let one spend carry its change, a shielded fee in a second asset, and that asset's change without a second round.
 
-::: warning The shape must match the deployed verifier
-4x4 (`TRANSACT_4X4`, ~40 MB zkey, 53 public-input coefficients) is the default and is what the deployed verifier accepts. A pool on a narrower verifier must say so — `connect({ shape: TRANSACT_3X3 })` or `TRANSACT_2X2` — because a 4x4 proof carries four commitments and 53 coefficients, which neither accepts.
+The narrower 2x2, 3x3 and 4x4 shapes were removed in circuits 0.12.0: each cost a trusted-setup ceremony per release and 20-40 MB in every install, and none covered anything this one does not. **A pool still on a narrower verifier cannot be served by this SDK version** — there are no keys to load, and a 4x6 proof carries six commitments, which such a verifier rejects.
 
 The mismatch surfaces as a **rejected proof at submit time, not at connect**: the SDK cannot see which verifier a pool deployed.
 :::
 
-Witness generation is single-threaded and unaffected by thread count. Groth16 is the part rayon parallelises — 3x3, on a 16-core Mac:
+Witness generation is single-threaded and unaffected by thread count. Groth16 is the part rayon parallelises — measured at 3x3, on a 16-core Mac:
 
 | Threads | 4 | 8 | 16 |
 |---|---|---|---|
@@ -118,7 +114,7 @@ Returns fall off sharply past 8 but have not vanished by 16, which is why the po
 
 ## Artifact caching
 
-The default 4x4 zkey is ~40 MB; 3x3 is ~29 MB. Downloaded artifacts persist to the **Cache API** automatically in any browser that has it — nothing to configure. Because the Cache API is origin-scoped rather than per-realm, this covers both a page reload and the prover worker.
+The 4x6 zkey is ~48 MB. Downloaded artifacts persist to the **Cache API** automatically in any browser that has it — nothing to configure. Because the Cache API is origin-scoped rather than per-realm, this covers both a page reload and the prover worker.
 
 ::: danger The URL is the cache key
 Serve new proving keys under a **new path**. There is no revalidation request — a round-trip on every load would defeat the point.

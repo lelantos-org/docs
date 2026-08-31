@@ -22,13 +22,37 @@ const tx = await wallet.withdraw({
 });
 ```
 
-Change splits into new self-notes. The MASP sends `outAmt - fee` to the recipient and the treasury keeps `fee`.
+Change splits into new self-notes, decomposed onto the asset's withdrawal ladder where it has one — see [Denominations](/guide/denominations).
 
-::: warning `sent` on the receipt is gross, not net
-`WithdrawResult.sent` is the `publicOut` leaving the pool — the protocol fee included. `MASP._unshieldLeg` skims the fee out of that amount rather than charging it on top, so the recipient's ERC-20 balance rises by less than `sent`. Show both figures in a UI.
+## What the recipient actually receives
+
+::: danger `amount` is the gross, and that changed in 0.28
+`WithdrawOptions.amount` is `publicOut` — the amount **leaving the pool**. Earlier versions read it as the net delivered and grossed it up by the protocol fee; they no longer do, so the same call now withdraws slightly less than it used to. Audit any amount carried over from 0.27 or earlier.
+
+`MASP._unshieldLeg` skims the fee out of what leaves the pool (`net = outAmt - fee`) rather than charging it on top, which makes `publicOut` the figure the chain publishes — and therefore the figure that has to be a round denomination if the withdrawal is to blend with anyone else's. `SwapOptions.amount` has always meant the same thing.
 :::
 
-The fee is taken from the **converted token amount**, so compute the split in ERC-20 base units — doing it in circuit units rounds at the wrong point and misreports the net by up to a unit.
+`previewWithdraw` answers what a withdrawal would publish, cost and deliver, without proving or submitting anything. It is pure, so a UI can call it on every keystroke.
+
+```ts twoslash
+// ---cut-start---
+import { connect } from "@lelantos-org/sdk";
+const wallet = await connect({
+    privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+    network: "anvil",
+    rpcUrl: "http://localhost:8545",
+});
+// ---cut-end---
+const p = await wallet.previewWithdraw({ asset: "USDC", amount: "1000" });
+
+p.publicOut; // gross in circuit units — what the chain sees
+p.netFormatted; // "998" — what the recipient gets
+p.onLadder; // whether this gross blends with other users' withdrawals
+p.suggestion; // nearest denomination, when it does not
+//    ^?
+```
+
+The receipt carries the same split, so nothing has to be recomputed after the fact — doing so needs the asset's `scale`, its rate and the yield index as they were at submission.
 
 ```ts twoslash
 // ---cut-start---
@@ -40,19 +64,14 @@ const wallet = await connect({
 });
 const to = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266" as const;
 // ---cut-end---
-import { applyFee, formatUnits, toTokenUnits } from "@lelantos-org/sdk/core";
-import { circuitAmount, requireTokenMeta } from "@lelantos-org/sdk";
+const tx = await wallet.withdraw({ to, amount: 200n, asset: 1n });
 
-const weth = requireTokenMeta(await wallet.asset(1n));
-const feeBps = await wallet.chain.fetchFeeBps();
-
-const gross = circuitAmount(200n); // what leaves the pool
-const grossTokens = toTokenUnits(gross, weth.scale);
-const fee = applyFee(grossTokens, feeBps);
-
-console.log("recipient receives", formatUnits(grossTokens - fee, weth.decimals), weth.symbol);
-await wallet.withdraw({ to, amount: gross, asset: weth.id });
+tx.sent; // gross `publicOut`, circuit units
+tx.received; // ERC-20 base units that reached the recipient
+tx.feePaid; // ERC-20 base units the protocol kept — `received + feePaid` is the gross
 ```
+
+Without a wallet in hand, `withdrawNetFor(publicOut, asset)` is the same split off an `AssetInfo`, and `withdrawNet` from `@lelantos-org/sdk/core` the fully manual form. Do not apply the rate yourself: the yield branch charges the fee in normalized units *before* conversion, and the plain branch after, so the wrong one is off by up to a unit.
 
 ## To native ETH
 
@@ -112,8 +131,11 @@ const { max } = await wallet.spendableMax(assetId(1n), { fee });
 if (max > 0n) await wallet.withdraw({ to, amount: max, asset: 1n });
 ```
 
+On an asset with a ladder, the maximum is rarely a denomination. Withdrawing it publishes a near-unique integer, so prefer the largest denomination at or below `max` — `nearestDenomination` and `wallet.withdrawDenominations()` both name it.
+
 ## Next
 
+- [Denominations](/guide/denominations) — why the gross should be a round number
 - [Swap](/guide/swap)
 - [Fees](/guide/fees) — protocol fee versus relayer fee
 - [Errors](/guide/errors)

@@ -10,6 +10,7 @@ keccak
 lelantos
 localnet
 MASP
+redenominate
 unshield
 unshields
 unshielding

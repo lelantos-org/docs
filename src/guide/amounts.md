@@ -11,10 +11,12 @@ Three integer spaces are in play, and confusing them is the most common integrat
 The relationship is fixed per asset:
 
 ```
-tokenUnits = circuitUnits * asset.scale
+tokenUnits = circuitUnits * asset.scale * asset.index / RAY
 ```
 
 `scale` exists because the pool's field elements are far narrower than 18 decimals. It is set per asset in the MASP registry, and it is not derivable from `decimals`.
+
+`index` is a pool-managed yield index, RAY-scaled, and is exactly `RAY` on a pool with no yield mixin — where it cancels and the relation is the plain `circuitUnits * scale` it has always been.
 
 ## Resolving an asset
 
@@ -32,7 +34,8 @@ const wallet = await connect({
 import { formatAmount, minAmount, parseAmount } from "@lelantos-org/sdk";
 
 const weth = await wallet.asset(1n);
-// → { id: 1n, token: "0xC02a…", scale: 1000000000000000n, symbol: "WETH", decimals: 18 }
+// → { id: 1n, token: "0xC02a…", scale: 1000000000000000n, symbol: "WETH", decimals: 18,
+//     depositBps: 0n, withdrawBps: 25n, index: RAY, yieldEnabled: false, ladder: [...] }
 
 parseAmount("0.25", weth); // 250n — human → circuit
 //  ^?
@@ -134,6 +137,25 @@ const label = hasTokenMeta(asset)
 const withMeta = requireTokenMeta(asset);
 //    ^?
 ```
+
+## When the pool pays yield
+
+Where a pool routes an asset's balance to a yield venue, its `index` rises over time. A fixed circuit amount is then worth more underlying than it was — the human value of a note moves while the note itself does not. That is the point of the normalized-unit design, and it is why a withdrawal denomination is a circuit-unit integer rather than a human amount (see [Denominations](/guide/denominations)).
+
+Two consequences for a UI: a formatted balance changes without any transaction, and the conversion is no longer exact in both directions. The rounding is deliberately asymmetric — **down** on the way out of the pool, **up** on the way in — so dust accrues to the remaining holders rather than to whoever is transacting.
+
+```ts twoslash
+import { RAY, toCircuitUnits, toTokenUnits } from "@lelantos-org/sdk/core";
+import { circuitAmount, tokenAmount } from "@lelantos-org/sdk";
+declare const index: bigint;
+
+toTokenUnits(circuitAmount(1000n), 10n ** 12n, { index, round: "down" });
+toCircuitUnits(tokenAmount(10n ** 15n), 10n ** 12n, { index, round: "down" });
+
+RAY; // the index at which both reduce to plain `scale` arithmetic
+```
+
+`wallet.asset()` resolves `index` and `yieldEnabled` for you, so `parseAmount` and `formatAmount` already account for them.
 
 ## Converting without a wallet
 
