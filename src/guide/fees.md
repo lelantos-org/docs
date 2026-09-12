@@ -43,6 +43,18 @@ const { net, fee } = withdrawNetFor(1000n, usdc);
 
 `withdrawNetFor` reads `withdrawBps`, `scale`, `index` and `yieldEnabled` off the asset, which is why it takes the asset rather than a rate: the yield branch rounds at a different point and misreports the net by up to a unit if `yieldEnabled` is assembled by hand and left out.
 
+### The shield leg, when the asset yields
+
+`withdrawNetFor` has a deposit-side counterpart, and it does not merely round differently — it can refuse. A shield is charged **on top of** the principal, and on a yield asset the whole total is converted once through the pool's `rate` rather than through `index`, which keeps the escrow digest stable and index-free.
+
+Two things follow for anyone building a deposit.
+
+**A yielding asset with no `rate` cannot be quoted.** The SDK raises `InvalidArgumentError` rather than falling back to `scale`, because `scale` under-quotes by exactly what the venue has earned — which is the amount that makes the Permit2 pull revert. See [Chain adapters](/guide/chain-adapter) for the adapter's side of this.
+
+**What you sign is a ceiling, not the quote.** A yield asset's cost is `units * gross / supply`, and `gross` grows with the venue every block, so a figure signed at exactly the quote is stale the moment it is signed. The SDK adds 50 bps of headroom (`DEPOSIT_INDEX_HEADROOM_BPS`) — about a thousand times the drift 5% APY produces over the default Permit2 deadline, while still bounding what a misbehaving pool could pull. Overshooting is free: Permit2 transfers only what the pool asks for, an allowance is a cap, and `NativeAdapter` refunds the unused part of `msg.value`. Undershooting reverts the deposit. Plain assets add no headroom, their cost being exact.
+
+This is why a deposit quote should be re-read rather than cached across a slow confirmation step.
+
 ::: warning A withdrawal's `amount` is the gross
 `MASP._unshieldLeg` sends `outAmt - fee` to the recipient and keeps `fee`, so `WithdrawOptions.amount` is what leaves the pool, not what arrives. `wallet.previewWithdraw` shows both figures — see [Withdraw](/guide/withdraw#what-the-recipient-actually-receives).
 :::

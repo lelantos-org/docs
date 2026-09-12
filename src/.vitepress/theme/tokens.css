@@ -1,137 +1,245 @@
 /* Lelantos docs palette.
  *
- * Light values are ported verbatim from webapp-ui/src/styles/tokens.css so the
- * docs, the wallet, and the explorer read as one product. That file is
- * light-only, so the dark side keeps VitePress's default neutrals and overrides
- * only the brand triplet — inventing a dark palette here would create a fourth
- * source of truth that the apps don't share.
- */
-
-/* Surfaces, text and lines are the LIGHT palette only.
+ * Ported from webapp-ui/src/styles/tokens.css — both themes, not just one — so
+ * the docs, the wallet and the explorer read as one product. That file is the
+ * source of truth; values here are pasted, not re-derived. Every text colour
+ * in it clears 4.5:1 on all four of its grounds, and the pairs are carried over
+ * intact rather than remixed onto VitePress's own scale.
  *
- * Scoped to `:not(.dark)` rather than plain `:root`, because `:root` and
- * `.dark` carry the same specificity and this file is imported after
- * VitePress's own stylesheet — so a `:root` declaration here would win in
- * *both* themes and paint dark mode with light surfaces. Everything below in
- * `:root` is safe unscoped: the `.dark` block overrides each of those, or the
- * value is theme-agnostic.
+ * Pasted, but not wholesale: like explorer-ui, this copy keeps only the tokens
+ * it actually uses. An unread token here is not a spare — it is a fourth
+ * palette that nothing checks and nothing renders.
+ *
+ * The warm ground and the ember accent are the whole point: they are what stop
+ * the surface reading as every other project in the category. Do not let this
+ * drift back toward a blue-black and an indigo.
  */
-:root:not(.dark) {
-    /* ── surfaces ────────────────────────────────────────────────────────── */
-    --vp-c-bg: #f2f3f7;
-    --vp-c-bg-alt: #ffffff;
-    --vp-c-bg-soft: #f9fafc;
-    --vp-c-bg-elv: #ffffff;
 
-    /* ── text ────────────────────────────────────────────────────────────── */
-    --vp-c-text-1: #191922;
-    --vp-c-text-2: #43434f;
-    --vp-c-text-3: #76768a;
-
-    /* ── lines ───────────────────────────────────────────────────────────── */
-    --vp-c-divider: #e5e6ee;
-    --vp-c-border: #d2d4e0;
-    --vp-c-gutter: #e5e6ee;
+@font-face {
+    font-family: "Newsreader";
+    src: url("/fonts/newsreader.woff2") format("woff2-variations");
+    font-weight: 300 700;
+    font-style: normal;
+    font-display: swap;
 }
 
+@font-face {
+    font-family: "Public Sans";
+    src: url("/fonts/public-sans.woff2") format("woff2-variations");
+    font-weight: 300 800;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: "Atkinson Hyperlegible Mono";
+    src: url("/fonts/atkinson-hyperlegible-mono.woff2") format("woff2-variations");
+    font-weight: 300 700;
+    font-style: normal;
+    font-display: swap;
+}
+
+/* The wordmark face, and nothing else — a static 600 cut, the only weight it
+   draws. A second use at another weight would be synthesised. */
+@font-face {
+    font-family: "Martian Mono";
+    src: url("/fonts/martian-mono.woff2") format("woff2");
+    font-weight: 600;
+    font-style: normal;
+    font-display: swap;
+}
+
+/* Dark is the default, matching the apps, so the dark values go in `:root` and
+ * light is the scoped override.
+ *
+ * Light is scoped `:root:not(.dark)` rather than a plain second block, because
+ * `:root` and `.dark` carry the same specificity and this file is imported
+ * after VitePress's own stylesheet — a bare `:root` light declaration would win
+ * in *both* themes and paint dark mode with paper surfaces.
+ */
 :root {
-    /* ── brand (shared, both themes) ─────────────────────────────────────── */
-    --vp-c-brand-1: #4f46e5;
-    --vp-c-brand-2: #6366f1;
-    --vp-c-brand-3: #c7d2fe;
-    --vp-c-brand-soft: rgba(79, 70, 229, 0.14);
+    /* ── raw palette, dark ───────────────────────────────────────────────── */
+    --lel-bg: #14110e;
+    --lel-bg-1: #1c1815;
+    --lel-bg-2: #241f1a;
+    /* Translucent chrome. Per-theme rather than a white with alpha: a white
+       veil over a dark ground is a grey smear, not a glass. */
+    --lel-bg-glass: rgba(28, 24, 21, 0.72);
+    --lel-fg: #f5f1e8;
+    --lel-fg-dim: #beb5a6;
+    --lel-fg-mute: #9e9486;
+    --lel-line: #2a241e;
+    --lel-line-strong: #3a332b;
+    --lel-accent: #e0794a;
+    --lel-accent-2: #ea8c60;
+    --lel-accent-dim: #7a4526;
+    --lel-accent-rgb: 224, 121, 74;
+    /* Ink for anything sitting ON a filled accent surface. It flips with the
+       theme and cannot be a literal: white on the dark theme's ember is 3.0:1
+       and the dark ink on the light theme's brick is 3.2:1 — both fail, and
+       only the pairing below clears AA on each. */
+    --lel-on-fill: #14110e;
+    --lel-warn: #e0a93f;
+    --lel-warn-rgb: 224, 169, 63;
+    --lel-warn-ink: #edd09a;
+    --lel-err: #e67a6e;
+    --lel-err-rgb: 230, 122, 110;
+    --lel-err-strong: #e5aaa2;
+    /* Code sits one step off the page — which way depends on the theme. On the
+       dark ground that means lighter; on paper, --bg-1 is *brighter* than the
+       page and a code block that glows is backwards, so light steps down. */
+    --lel-code-bg: var(--lel-bg-1);
 
-    /* ── semantic ────────────────────────────────────────────────────────── */
-    --vp-c-warning-1: #d97706;
-    --vp-c-warning-soft: rgba(217, 119, 6, 0.14);
-    --vp-c-danger-1: #dc2626;
-    --vp-c-danger-soft: rgba(220, 38, 38, 0.14);
+    /* ── faces ───────────────────────────────────────────────────────────── */
+    --lel-sans:
+        "Public Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+        Arial, sans-serif;
+    /* Headings. Tabular in the binary, with a real optical-size axis, so a 48px
+       hero and a 13px label are genuinely different drawings. */
+    --lel-display: "Newsreader", Georgia, "Times New Roman", serif;
+    --lel-mono: "Atkinson Hyperlegible Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --lel-brand: "Martian Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
-    /* ── type ────────────────────────────────────────────────────────────── */
-    --vp-font-family-base:
-        -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, "Helvetica Neue", Arial,
-        sans-serif;
-    --vp-font-family-mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    /* ── shape and motion ────────────────────────────────────────────────── */
+    /* The 12–24px radius family with pill chips is the category's most
+       recognisable tell. Near-zero is unoccupied and costs nothing. */
+    --lel-radius: 4px;
+    --lel-radius-sm: 2px;
+    --lel-ease-soft: cubic-bezier(0.4, 0, 0.2, 1);
+    --lel-dur: 120ms;
+}
 
-    /* ── buttons ─────────────────────────────────────────────────────────────
-   * VitePress derives --vp-button-brand-bg from --vp-c-brand-3, which is our
-   * pale lavender (#c7d2fe) — correct as a tint for badges and custom blocks,
-   * far too washed out for the hero CTA. Point the button at the real indigo
-   * instead, and darken rather than lighten on hover.
-   */
+:root:not(.dark) {
+    --lel-bg: #f7f4ed;
+    --lel-bg-1: #fffdf8;
+    --lel-bg-2: #f1ede4;
+    --lel-bg-glass: rgba(255, 253, 248, 0.72);
+    --lel-fg: #14110e;
+    --lel-fg-dim: #514b42;
+    --lel-fg-mute: #6b6459;
+    --lel-line: #e2dcd0;
+    --lel-line-strong: #cfc7b8;
+    --lel-accent: #a8481b;
+    --lel-accent-2: #8e3c14;
+    --lel-accent-dim: #e8c9b4;
+    --lel-accent-rgb: 168, 72, 27;
+    --lel-on-fill: #fffdf8;
+    --lel-warn: #7e590e;
+    --lel-warn-rgb: 126, 89, 14;
+    --lel-warn-ink: #5c4108;
+    --lel-err: #a63a2e;
+    --lel-err-rgb: 166, 58, 46;
+    --lel-err-strong: #8a2e23;
+    --lel-code-bg: var(--lel-bg-2);
+}
+
+/* ── VitePress mapping ────────────────────────────────────────────────────
+ * Everything below resolves to the tokens above, so the two themes are driven
+ * entirely by the two blocks up there and nothing here needs a `.dark` twin.
+ */
+:root {
+    /* surfaces */
+    --vp-c-bg: var(--lel-bg);
+    --vp-c-bg-alt: var(--lel-bg-1);
+    --vp-c-bg-soft: var(--lel-bg-1);
+    --vp-c-bg-elv: var(--lel-bg-2);
+    --vp-c-gutter: var(--lel-line);
+
+    /* text */
+    --vp-c-text-1: var(--lel-fg);
+    --vp-c-text-2: var(--lel-fg-dim);
+    --vp-c-text-3: var(--lel-fg-mute);
+
+    /* lines */
+    --vp-c-divider: var(--lel-line);
+    --vp-c-border: var(--lel-line-strong);
+
+    /* The neutral "default" ramp drives scrollbars, kbd, the local-nav hover
+       and the `details` block. Left on VitePress's greys it is the one cool
+       thing left on a warm page. */
+    --vp-c-default-1: var(--lel-fg-dim);
+    --vp-c-default-2: var(--lel-line-strong);
+    --vp-c-default-3: var(--lel-line);
+    --vp-c-default-soft: var(--lel-bg-2);
+
+    /* brand */
+    --vp-c-brand-1: var(--lel-accent);
+    --vp-c-brand-2: var(--lel-accent-2);
+    --vp-c-brand-3: var(--lel-accent-dim);
+    --vp-c-brand-soft: rgba(var(--lel-accent-rgb), 0.14);
+
+    /* A tip is the brand, not a second colour. */
+    --vp-c-tip-1: var(--lel-accent);
+    --vp-c-tip-2: var(--lel-accent-2);
+    --vp-c-tip-3: var(--lel-accent-dim);
+    --vp-c-tip-soft: rgba(var(--lel-accent-rgb), 0.12);
+
+    --vp-c-warning-1: var(--lel-warn);
+    --vp-c-warning-2: var(--lel-warn);
+    --vp-c-warning-3: var(--lel-warn);
+    --vp-c-warning-soft: rgba(var(--lel-warn-rgb), 0.12);
+
+    --vp-c-danger-1: var(--lel-err);
+    --vp-c-danger-2: var(--lel-err);
+    --vp-c-danger-3: var(--lel-err);
+    --vp-c-danger-soft: rgba(var(--lel-err-rgb), 0.12);
+
+    /* Chrome sits on the page surface, with the divider as the only thing
+       marking the boundary — the same rule footer.css already follows. */
+    --vp-nav-bg-color: var(--lel-bg);
+    --vp-sidebar-bg-color: var(--lel-bg);
+    --vp-local-nav-bg-color: var(--lel-bg);
+    --vp-backdrop-bg-color: rgba(20, 17, 14, 0.6);
+
+    /* type */
+    --vp-font-family-base: var(--lel-sans);
+    --vp-font-family-mono: var(--lel-mono);
+
+    /* shape */
+    --vp-code-block-radius: var(--lel-radius);
+
+    --vp-code-block-bg: var(--lel-code-bg);
+    --vp-code-tab-divider: var(--lel-line);
+
+    /* ── buttons ──────────────────────────────────────────────────────────
+     * VitePress derives the brand button from --vp-c-brand-3, which is our
+     * dim ember — right as a tint behind a badge, far too dark as the hero
+     * CTA. Point it at the real accent, and take the theme's --on-fill as its
+     * ink: neither white nor the near-black works in both directions.
+     */
     --vp-button-brand-border: transparent;
-    --vp-button-brand-text: #ffffff;
-    --vp-button-brand-bg: #4f46e5;
+    --vp-button-brand-text: var(--lel-on-fill);
+    --vp-button-brand-bg: var(--lel-accent);
     --vp-button-brand-hover-border: transparent;
-    --vp-button-brand-hover-text: #ffffff;
-    --vp-button-brand-hover-bg: #4338ca;
+    --vp-button-brand-hover-text: var(--lel-on-fill);
+    --vp-button-brand-hover-bg: var(--lel-accent-2);
     --vp-button-brand-active-border: transparent;
-    --vp-button-brand-active-text: #ffffff;
-    --vp-button-brand-active-bg: #3730a3;
+    --vp-button-brand-active-text: var(--lel-on-fill);
+    --vp-button-brand-active-bg: var(--lel-accent-2);
 
-    /* The secondary CTA reads as indigo-on-tint, so the pair looks related
-     rather than "one button and one grey rectangle". */
-    --vp-button-alt-border: #d5d8ea;
-    --vp-button-alt-text: #4338ca;
-    --vp-button-alt-bg: #ffffff;
-    --vp-button-alt-hover-border: #4f46e5;
-    --vp-button-alt-hover-text: #3730a3;
-    --vp-button-alt-hover-bg: #eef0fb;
-    --vp-button-alt-active-border: #4f46e5;
-    --vp-button-alt-active-text: #3730a3;
-    --vp-button-alt-active-bg: #e3e6f8;
-
-    /* ── shape ───────────────────────────────────────────────────────────── */
-    --vp-code-block-radius: 8px;
-
-    /* Home hero: the brand indigo, matching the wallet's accent ramp. */
-    --vp-home-hero-name-color: transparent;
-    --vp-home-hero-name-background: linear-gradient(120deg, #4f46e5, #6366f1);
-    --vp-home-hero-image-background-image: linear-gradient(
-        -45deg,
-        rgba(79, 70, 229, 0.35),
-        rgba(99, 102, 241, 0.18)
-    );
-    --vp-home-hero-image-filter: blur(48px);
-}
-
-.dark {
-    /* Brand lightened for contrast on dark surfaces — #4f46e5 on VitePress's
-     near-black fails WCAG AA for body-size text. */
-    --vp-c-brand-1: #a5b4fc;
-    --vp-c-brand-2: #818cf8;
-    --vp-c-brand-3: #4f46e5;
-    --vp-c-brand-soft: rgba(129, 140, 248, 0.16);
-
-    --vp-c-warning-1: #fbbf24;
-    --vp-c-warning-soft: rgba(251, 191, 36, 0.16);
-    --vp-c-danger-1: #f87171;
-    --vp-c-danger-soft: rgba(248, 113, 113, 0.16);
-
-    --vp-home-hero-name-background: linear-gradient(120deg, #a5b4fc, #818cf8);
-
-    /* On dark, a saturated indigo fill goes muddy; lift it and keep the text
-     dark so the CTA still carries the most contrast on the page. */
-    --vp-button-brand-text: #12121a;
-    --vp-button-brand-bg: #a5b4fc;
-    --vp-button-brand-hover-text: #12121a;
-    --vp-button-brand-hover-bg: #c7d2fe;
-    --vp-button-brand-active-text: #12121a;
-    --vp-button-brand-active-bg: #818cf8;
-
-    --vp-button-alt-border: #3a3a52;
-    --vp-button-alt-text: #c7d2fe;
+    /* The secondary CTA reads as accent-on-ground, so the pair looks related
+       rather than "one button and one grey rectangle". */
+    --vp-button-alt-border: var(--lel-line-strong);
+    --vp-button-alt-text: var(--lel-accent);
     --vp-button-alt-bg: transparent;
-    --vp-button-alt-hover-border: #818cf8;
-    --vp-button-alt-hover-text: #e0e5ff;
-    --vp-button-alt-hover-bg: rgba(129, 140, 248, 0.12);
-    --vp-button-alt-active-border: #818cf8;
-    --vp-button-alt-active-text: #e0e5ff;
-    --vp-button-alt-active-bg: rgba(129, 140, 248, 0.2);
-}
+    --vp-button-alt-hover-border: var(--lel-accent);
+    --vp-button-alt-hover-text: var(--lel-accent-2);
+    --vp-button-alt-hover-bg: rgba(var(--lel-accent-rgb), 0.08);
+    --vp-button-alt-active-border: var(--lel-accent);
+    --vp-button-alt-active-text: var(--lel-accent-2);
+    --vp-button-alt-active-bg: rgba(var(--lel-accent-rgb), 0.14);
 
-/* Twoslash tooltips inherit the code font so a hovered type reads as code. */
-.twoslash-popup-code,
-.twoslash-popup-docs {
-    font-family: var(--vp-font-family-mono);
+    /* ── home hero ────────────────────────────────────────────────────────
+     * Flat accent, not a gradient. The apps have no gradient anywhere; the
+     * wordmark is one weight of one colour, and a two-stop sweep across the
+     * product name would be the first.
+     */
+    --vp-home-hero-name-color: var(--lel-accent);
+    --vp-home-hero-name-background: none;
+    --vp-home-hero-image-background-image: radial-gradient(
+        circle at 50% 50%,
+        rgba(var(--lel-accent-rgb), 0.28),
+        transparent 70%
+    );
+    --vp-home-hero-image-filter: blur(56px);
 }

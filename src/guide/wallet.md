@@ -9,12 +9,10 @@
 | `nsk` — pre-derived; derivation is yours | `provider` + `address` — a browser EIP-1193 provider |
 | *omitted* — derived from the chain layer, where it can | `chain` — a pre-built `ChainAdapter` |
 
-::: danger Key derivation changed in 0.28
-Every source derives a **different `nsk`** than 0.27 and earlier did, so the same mnemonic, private key or signature now produces a different shielded address.
+::: tip One `nsk`, one address
+The BIP-39 path uses a v2 ZIP32 master personalisation; the private-key and signature paths draw two keccak blocks before reduction, since folding a bare 256-bit digest into the 251-bit subgroup order skews residues by about 30:29, which is a bias in a spending key.
 
-The BIP-39 path moved to a v2 ZIP32 master personalisation, and the private-key and signature paths widened their draw to two keccak blocks before reduction — folding a bare 256-bit digest into the 251-bit subgroup order skews residues by about 30:29, which is a bias in a spending key.
-
-There is no compatibility switch. Notes shielded under a pre-0.28 address are spendable only by that `nsk`: sweep them with the older SDK, or hold the old `nsk` and pass it as the `nsk` key source.
+Notes are spendable only by the `nsk` they were shielded under. Hold that key, or pass it directly as the `nsk` key source.
 :::
 
 Omitting the key source is valid whenever the chain layer can supply one: `privateKey` derives it by reduction, and `signer` or `provider` derives it from a single EIP-712 signature. A pre-built `chain` adapter exposes no signing key, so that combination always needs an explicit source.

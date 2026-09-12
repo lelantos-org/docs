@@ -26,10 +26,10 @@ Change splits into new self-notes, decomposed onto the asset's withdrawal ladder
 
 ## What the recipient actually receives
 
-::: danger `amount` is the gross, and that changed in 0.28
-`WithdrawOptions.amount` is `publicOut` — the amount **leaving the pool**. Earlier versions read it as the net delivered and grossed it up by the protocol fee; they no longer do, so the same call now withdraws slightly less than it used to. Audit any amount carried over from 0.27 or earlier.
+::: danger `amount` is the gross, not the net
+`WithdrawOptions.amount` is `publicOut` — the amount **leaving the pool**, not the amount the recipient receives.
 
-`MASP._unshieldLeg` skims the fee out of what leaves the pool (`net = outAmt - fee`) rather than charging it on top, which makes `publicOut` the figure the chain publishes — and therefore the figure that has to be a round denomination if the withdrawal is to blend with anyone else's. `SwapOptions.amount` has always meant the same thing.
+`MASP._unshieldLeg` skims the fee out of what leaves the pool (`net = outAmt - fee`) rather than charging it on top, which makes `publicOut` the figure the chain publishes — and therefore the figure that has to be a round denomination if the withdrawal is to blend with anyone else's. `SwapOptions.amount` means the same thing.
 :::
 
 `previewWithdraw` answers what a withdrawal would publish, cost and deliver, without proving or submitting anything. It is pure, so a UI can call it on every keystroke.

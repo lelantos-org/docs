@@ -16,7 +16,7 @@ tokenUnits = circuitUnits * asset.scale * asset.index / RAY
 
 `scale` exists because the pool's field elements are far narrower than 18 decimals. It is set per asset in the MASP registry, and it is not derivable from `decimals`.
 
-`index` is a pool-managed yield index, RAY-scaled, and is exactly `RAY` on a pool with no yield mixin — where it cancels and the relation is the plain `circuitUnits * scale` it has always been.
+`index` is a pool-managed yield index, RAY-scaled, and is exactly `RAY` on a pool with no yield mixin — where it cancels and the relation reduces to the plain `circuitUnits * scale`.
 
 ## Resolving an asset
 
@@ -84,6 +84,10 @@ A `number` is rejected outright: it cannot represent a decimal amount exactly, a
 
 Use `minAmount(asset)` to tell the user what the smallest expressible amount actually is.
 
+::: tip A yielding asset rounds down instead
+That rule holds for an asset with a fixed granularity, where an off-boundary amount was never representable and refusing it is the honest answer. Under a moving index it is not: a unit is worth a non-round number of base units, so most human amounts — including the ones `formatAmount` produces — have no exact equivalent, and throwing would make the asset unusable through this API. `parseAmount` therefore floors on an asset whose `index` is not `RAY`, so the caller gets slightly less than they asked for and never more than they hold. An asset whose index is *unknown* keeps the strict behaviour.
+:::
+
 ```ts twoslash
 // ---cut-start---
 import { connect } from "@lelantos-org/sdk";
@@ -142,20 +146,48 @@ const withMeta = requireTokenMeta(asset);
 
 Where a pool routes an asset's balance to a yield venue, its `index` rises over time. A fixed circuit amount is then worth more underlying than it was — the human value of a note moves while the note itself does not. That is the point of the normalized-unit design, and it is why a withdrawal denomination is a circuit-unit integer rather than a human amount (see [Denominations](/guide/denominations)).
 
-Two consequences for a UI: a formatted balance changes without any transaction, and the conversion is no longer exact in both directions. The rounding is deliberately asymmetric — **down** on the way out of the pool, **up** on the way in — so dust accrues to the remaining holders rather than to whoever is transacting.
+Two consequences for a UI: a formatted balance changes without any transaction, and the conversion is no longer exact in both directions. The rounding is deliberately asymmetric — **down** out of the pool, **up** into it — so dust accrues to the remaining holders rather than to whoever is transacting.
 
-```ts twoslash
+That asymmetry is what makes the round trip work. `toTokenUnits` floors, so its result sits at or below what the units are really worth; flooring again on the way back lands under it and loses a unit. `round: "up"` is the smallest unit count worth at least the token amount, and inverts the floor exactly.
+
+<!-- typecheck: skip -->
+```ts
 import { RAY, toCircuitUnits, toTokenUnits } from "@lelantos-org/sdk/core";
-import { circuitAmount, tokenAmount } from "@lelantos-org/sdk";
+import { circuitAmount } from "@lelantos-org/sdk";
 declare const index: bigint;
 
-toTokenUnits(circuitAmount(1000n), 10n ** 12n, { index, round: "down" });
-toCircuitUnits(tokenAmount(10n ** 15n), 10n ** 12n, { index, round: "down" });
+// Out of the pool: floor, so a quote never overstates what a note is worth.
+const worth = toTokenUnits(circuitAmount(1000n), 10n ** 12n, { index, round: "down" });
+
+// Back in: ceil, the exact inverse — this recovers 1000n, where "down" would give 999n.
+toCircuitUnits(worth, 10n ** 12n, { index, round: "up" });
 
 RAY; // the index at which both reduce to plain `scale` arithmetic
 ```
 
+Rounding up cannot over-draw: if the amount was within the balance to begin with, the unit count it maps to is too. This is what a "max" button needs — under a moving index most unit counts have no exact decimal at the token's `decimals`, including the one `formatAmount` itself just wrote into the field.
+
 `wallet.asset()` resolves `index` and `yieldEnabled` for you, so `parseAmount` and `formatAmount` already account for them.
+
+### Sizing a payment: use `rate`, not `index`
+
+`index` is display-only. The pool floors it on chain, so converting a *charge* through it can land below what the contract takes — and a Permit2 `maxTotal` signed off that figure is refused outright. A priced yield asset also carries `rate`, the `{ gross, supply }` pair the pool itself divides by.
+
+<!-- typecheck: skip -->
+```ts
+import { toTokenUnitsAtRate } from "@lelantos-org/sdk/core";
+
+const usdc = await wallet.asset("USDC");
+
+if (usdc.yieldEnabled && usdc.rate === undefined) {
+    // Not a precision problem: this asset cannot be quoted at all.
+    throw new Error("pool has not priced this asset yet");
+}
+
+toTokenUnitsAtRate(amount, usdc.scale, usdc.rate, { round: "up" });
+```
+
+`rate` is absent on a plain asset, where `scale` alone is exact. It is also absent on a *yielding* asset the source has not priced yet, and that case is not a fallback to `scale` — `scale` is wrong there by whatever the venue has already earned, which is precisely the gap that makes the pull revert. Treat a yielding asset with no `rate` as unquotable.
 
 ## Converting without a wallet
 

@@ -41,6 +41,7 @@ export const guideSidebar: DefaultTheme.SidebarItem[] = [
         items: [
             { text: "Syncing", link: "/guide/sync" },
             { text: "Note management", link: "/guide/notes" },
+            { text: "Watch-only wallets", link: "/guide/watch-only" },
         ],
     },
     {

@@ -21,10 +21,6 @@ wallet.balances(); // Map<assetId, bigint>, unspent only
 
 These are synchronous reads of the local cache. They reflect the last `sync()` and nothing newer.
 
-::: warning `allNotes()` was removed in 0.26.0
-Call `notes()` instead. It takes the same `{ spent }` filter and reads across every asset when `asset` is omitted, so `allNotes(f)` becomes `notes(f)` unchanged.
-:::
-
 `WalletNote` is the integrator-facing type; the storage encoding (decimal-string bigints) is internal. For cryptographic fields — custom proofs, low-level builders — call `note.notePayload()` to get `{ asset, value, rho, rcm, rcvDep }` as native bigints.
 
 ## What a single spend can actually reach

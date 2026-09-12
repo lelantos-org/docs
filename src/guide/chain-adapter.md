@@ -32,7 +32,9 @@ class EthersChainAdapter implements ChainAdapter {
 }
 ```
 
-`AssetEntry` carries the fee rates: `depositBps` and `withdrawBps`, per asset and per leg. There is no `fetchFeeBps` — it was removed in 0.30, when the contracts moved the rates onto the registry entry. An adapter reading a pool with no yield mixin omits `index` and `yieldEnabled`, which is read as `RAY` and `false`.
+`AssetEntry` carries the fee rates: `depositBps` and `withdrawBps`, per asset and per leg. There is no `fetchFeeBps`: the contracts carry both rates on the registry entry, so they are resolved with the asset. An adapter reading a pool with no yield mixin omits `index` and `yieldEnabled`, which is read as `RAY` and `false`.
+
+A yield-bearing entry should also carry `rate` — the pool's own `{ gross, supply }` pair. It is not a more precise `index`, it is a different number: `index` is floored on chain, so a deposit sized through it can quote *under* what the contract actually pulls, and the Permit2 transfer is then refused. An adapter that omits `rate` on a yielding asset does not lose precision — it makes deposits of that asset fail. `scale` is not a fallback either; it is wrong by whatever the venue has earned.
 
 ::: tip Why this block is not typechecked
 The `...` bodies are illustrative rather than real implementations. The interface is fully documented in the [reference](/reference/chain/).
@@ -50,6 +52,7 @@ An adapter that omits an optional method does not fail — the wallet simply los
 | `submitDepositAuthorized` + the Permit2 allowance methods | no allowance-mode deposits |
 | `cancelDeposit` | escrowed deposits cannot be reclaimed |
 | `waitTxReceipt` | no confirmation wait after broadcast |
+| `isKnownRoot` | the local commitment mirror is the last word on whether a root is still accepted |
 
 Three named guards narrow an adapter to the capability set a path needs:
 

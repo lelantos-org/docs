@@ -60,12 +60,19 @@ const wallet = await connect({
     network: "mainnet",
     rpcUrl,
     prover: browserWorkerProver({
-        // The URL must be built at the ESM call site so the bundler can see it.
-        workerUrl: new URL("@lelantos-org/sdk/prover-worker", import.meta.url),
+        // The `new Worker(...)` expression must sit at your own ESM call site
+        // so the bundler can see it.
+        worker: () =>
+            new Worker(new URL("@lelantos-org/sdk/prover-worker", import.meta.url), {
+                type: "module",
+            }),
         paths: { circuit: wasmUrl, zkey: zkeyUrl },
     }),
     scanner: browserWorkerScanner({
-        workerUrl: new URL("@lelantos-org/sdk/scanner-worker", import.meta.url),
+        worker: () =>
+            new Worker(new URL("@lelantos-org/sdk/scanner-worker", import.meta.url), {
+                type: "module",
+            }),
         size: 4, // defaults to navigator.hardwareConcurrency, clamped 2–8
     }),
 });
@@ -74,8 +81,8 @@ const wallet = await connect({
 await wallet.dispose();
 ```
 
-::: warning Build worker URLs with `new URL(..., import.meta.url)`
-Bundlers detect that exact form and emit the worker as its own chunk. A URL assembled from a variable is invisible to them, and the worker will 404 in a production build while working in dev.
+::: warning Spawn the worker in your own module, with `new URL(..., import.meta.url)`
+Both options take a **factory** — `() => new Worker(...)` — rather than a URL, and the `new Worker(new URL(...), ...)` expression must be written literally at your call site. Bundlers emit a worker chunk only for that exact form; a URL threaded through a helper is invisible to them, and Vite will inline the worker entry as a `data:` URL whose relative imports then fail at runtime. The factory is also what lets `WorkerPoolScanner` respawn a dead worker, and it accommodates the other spellings a bundler may require — `import W from "…?worker"`, then `() => new W()`.
 :::
 
 ::: tip Passing a custom `prover` skips artifact resolution
@@ -94,12 +101,12 @@ Bundlers detect that exact form and emit the worker as its own chunk. A URL asse
 
 `prove()` splits into witness generation and the Groth16 proof. Both are logged at `debug` on `lelantos:prover:wasm`.
 
-Cost scales with circuit arity, and the last measured figure is for a shape that no longer ships: on an Apple M3 Max (16 threads, Node, median of three warm runs) the 4x4 shape of SDK 0.26 took ~190 ms for the witness and ~735 ms for the proof, ~925 ms in total. 4x6 is wider, so treat that as a floor rather than an estimate, and measure your own targets from the `debug` log.
+Cost scales with circuit arity. Timings vary enough across machines and thread counts that a quoted figure is worth little — measure your own targets from the `debug` log.
 
 ::: warning One shape, and it must match the deployed verifier
 `TRANSACT_4X6` — four inputs, six outputs, 69 public-input coefficients, a ~48 MB zkey and a ~4 MB witness circuit. The six outputs are what let one spend carry its change, a shielded fee in a second asset, and that asset's change without a second round.
 
-The narrower 2x2, 3x3 and 4x4 shapes were removed in circuits 0.12.0: each cost a trusted-setup ceremony per release and 20-40 MB in every install, and none covered anything this one does not. **A pool still on a narrower verifier cannot be served by this SDK version** — there are no keys to load, and a 4x6 proof carries six commitments, which such a verifier rejects.
+Narrower shapes are not built: each would cost a trusted-setup ceremony per release and 20-40 MB in every install, and none covers anything this one does not. **A pool on a narrower verifier cannot be served** — there are no keys to load, and a 4x6 proof carries six commitments, which such a verifier rejects.
 
 The mismatch surfaces as a **rejected proof at submit time, not at connect**: the SDK cannot see which verifier a pool deployed.
 :::
@@ -145,7 +152,7 @@ A custom cache implements `ArtifactCache` — `get(url)` and `put(url, bytes)`, 
 
 <!-- typecheck: skip -->
 ```ts
-browserWorkerProver({ workerUrl, paths, cacheArtifacts: false });
+browserWorkerProver({ worker, paths, cacheArtifacts: false });
 ```
 :::
 

@@ -18,14 +18,40 @@ export default defineConfig({
     // (/docs/glossary/terms#filter) that only resolve on viem.sh. Scoped to that
     // prefix so every other link stays checked.
     ignoreDeadLinks: [/^\/docs\/glossary\//],
+    // Dark is the default across the wallet and the explorer; the docs follow.
+    // Still toggleable — this sets which way an unstated preference falls.
+    appearance: "dark",
     head: [
         ["link", { rel: "icon", href: "/icon.svg", type: "image/svg+xml" }],
-        ["meta", { name: "theme-color", content: "#4f46e5" }],
+        ["meta", { name: "theme-color", content: "#14110E" }],
+        // The three faces the first screen is set in, fetched alongside the
+        // HTML rather than after the CSS that names them has been parsed.
+        // Newsreader sets the headings, which are the largest thing painted;
+        // without the preload it swaps in late and reflows every section head.
+        // `crossorigin` is required for fonts even on the same origin, or the
+        // preloaded copy is not reused. Martian Mono is left out: it is 10KB
+        // and only sets the wordmark.
+        ...(["public-sans", "newsreader", "atkinson-hyperlegible-mono"].map((f) => [
+            "link",
+            {
+                rel: "preload",
+                href: `/fonts/${f}.woff2`,
+                as: "font",
+                type: "font/woff2",
+                crossorigin: "",
+            },
+        ]) as [string, Record<string, string>][]),
         ["meta", { property: "og:type", content: "website" }],
         ["meta", { property: "og:title", content: "Lelantos SDK" }],
         ["meta", { property: "og:url", content: "https://docs.lelantos.xyz" }],
     ],
     markdown: {
+        // Warm-neutral, to sit on the warm ground. VitePress's default pair is
+        // GitHub's, whose blue-violet keywords are the one cool thing left on
+        // the page once the palette is the wallet's — and the accent is an
+        // ember, so a violet keyword next to it reads as a second brand.
+        // The block's own ground still comes from --vp-code-block-bg.
+        theme: { light: "vitesse-light", dark: "vitesse-dark" },
         codeTransformers: [
             transformerTwoslash({
                 // Never silently downgrade to plain highlighting: a snippet

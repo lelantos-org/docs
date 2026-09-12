@@ -1,40 +1,38 @@
-# Project dictionary for the Lelantos docs.
 #
 # Domain vocabulary and third-party names only. If a word here is not one of
-# those, it is probably a typo that was whitelisted to make the check pass —
+# Project dictionary for the Lelantos docs.
 # remove it and fix the prose instead.
-
+# those, it is probably a typo that was whitelisted to make the check pass —
+# ── cited authors ─────────────────────────────────────────────────────────
+# ── cryptography ──────────────────────────────────────────────────────────
+# ── general ───────────────────────────────────────────────────────────────
 # ── protocol ──────────────────────────────────────────────────────────────
+# ── services and tooling ──────────────────────────────────────────────────
+# ── web platform ──────────────────────────────────────────────────────────
 bech
+checkpointed
+forgeable
+Groth
+hyperlegible
+Jubjub
 keccak
 lelantos
 localnet
 MASP
-redenominate
-unshield
-unshields
-unshielding
-
-# ── cryptography ──────────────────────────────────────────────────────────
-Groth
-Jubjub
-Sfrt
-
-# ── services and tooling ──────────────────────────────────────────────────
 metaquoter
+OPFS
+passthroughs
+proxiable
+redenominate
+Sfrt
 shikijs
 snarkjs
-Twoslash
-viem
-
-# ── web platform ──────────────────────────────────────────────────────────
-OPFS
-proxiable
-
-# ── general ───────────────────────────────────────────────────────────────
-checkpointed
-forgeable
-passthroughs
-
-# ── cited authors ─────────────────────────────────────────────────────────
+toggleable
 Tramèr
+Twoslash
+unshield
+unshielding
+unshields
+viem
+vitesse
+wordmark

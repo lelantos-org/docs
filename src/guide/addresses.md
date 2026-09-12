@@ -25,8 +25,8 @@ All three components are needed:
 
 Without `ck`, a sender cannot produce a detectable note, which is why the address is 96 bytes rather than 32.
 
-::: danger Legacy `sswap1…` / `sswap2…` addresses are rejected
-They are not a different encoding of the same thing — they carry a **different payload** and cannot be upgraded in place. An address that does not parse raises `InvalidArgumentError`, and the rejected value never appears in the error message: it would reach logs verbatim. See [Errors](/guide/errors).
+::: tip A rejected address is left out of the error
+An address that does not parse raises `InvalidArgumentError`, and the value itself never appears in the message: it would reach logs verbatim. See [Errors](/guide/errors).
 :::
 
 ## Deriving an address

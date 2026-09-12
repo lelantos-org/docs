@@ -11,13 +11,17 @@
  */
 /* The row sits on the page surface, not a tinted band.
  *
- * explorer-ui puts its footer on `--bg-2`, one step lighter than the page. That
- * reads as a distinct band there, where the footer follows tinted content
- * cards. Here the nav, the content column and the footer are the only three
- * full-width surfaces, so a lighter footer makes the top and bottom of the page
- * disagree. Matching `--vp-c-bg` — the same token the nav resolves to — leaves
- * the divider as the only thing marking the boundary, which is how the rest of
- * the site separates its chrome.
+ * webapp-ui and explorer-ui both close on `--bg-2`, and this file did too for
+ * a moment. It does not survive the move: those apps are a single column, so
+ * their band spans the real width of the page. Here `.VPSidebar` is fixed and
+ * full-height on `--vp-c-bg`, so a tinted footer is painted over for its first
+ * 270px and what is left reads as a rectangle hanging off the content column,
+ * with a hard vertical seam at the sidebar edge.
+ *
+ * So: match the ground, and let the divider be the only thing marking the
+ * boundary — which is how the rest of this site separates its chrome, and the
+ * same token the nav resolves to. The band is not available to a page with a
+ * sidebar; do not restore it without also solving that edge.
  */
 .VPFooter.VPFooter {
     border-top: 1px solid var(--vp-c-divider);
@@ -78,7 +82,7 @@
     width: 100%;
     padding: 18px 24px;
     font-size: 13px;
-    color: var(--vp-c-text-2);
+    color: var(--lel-fg);
 }
 
 .VPFooter.VPFooter .ftr__brand {
@@ -104,11 +108,19 @@
     color: var(--vp-c-text-3);
     font-weight: 400;
     text-decoration: none;
-    transition: color 120ms cubic-bezier(0.4, 0, 0.2, 1);
+    transition: color 0.15s ease;
 }
 
 .VPFooter.VPFooter .ftr__link:hover {
     color: var(--vp-c-brand-1);
+}
+
+/* webapp-ui rings this link explicitly (`outline: var(--ring)`). brand.css's
+   global `:focus-visible` would otherwise be the only thing here, and it skips
+   the 2px offset this row needs to clear the separators. */
+.VPFooter.VPFooter .ftr__link:focus-visible {
+    outline: 2px solid var(--lel-accent);
+    outline-offset: 2px;
 }
 
 /* Present but recessive: wanted when reporting a bug, noise the rest of the
@@ -142,5 +154,15 @@
         text-wrap: balance;
         line-height: 1.6;
         font-size: 11px;
+    }
+}
+
+/* The second step webapp-ui takes below 480px. The safe-area term carries over
+   from the 560px rule — dropping it here would put the links under the iOS
+   home indicator. */
+@media (max-width: 480px) {
+    .VPFooter.VPFooter .ftr {
+        padding: 12px 12px calc(12px + env(safe-area-inset-bottom, 0px));
+        font-size: 12px;
     }
 }

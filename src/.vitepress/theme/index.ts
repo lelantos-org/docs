@@ -3,6 +3,7 @@ import type { EnhanceAppContext } from "vitepress";
 import DefaultTheme from "vitepress/theme";
 import "@shikijs/vitepress-twoslash/style.css";
 import "./tokens.css";
+import "./brand.css";
 import "./footer.css";
 
 export default {
