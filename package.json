@@ -33,6 +33,6 @@
         "vitepress": "^1.6.3"
     },
     "dependencies": {
-        "@lelantos-org/sdk": "0.35.0"
+        "@lelantos-org/sdk": "0.36.0"
     }
 }
