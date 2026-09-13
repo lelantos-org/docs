@@ -27,7 +27,11 @@ export default {
     entryPointStrategy: "resolve",
     tsconfig: "tsconfig.typedoc.json",
     out: "src/reference",
-    plugin: ["typedoc-plugin-markdown", "typedoc-vitepress-theme"],
+    plugin: [
+        "typedoc-plugin-markdown",
+        "typedoc-vitepress-theme",
+        "./scripts/lib/typedoc-viem.mjs",
+    ],
     // The SDK marks internals with @internal; they are not supported surface.
     excludeInternal: true,
     excludePrivate: true,
@@ -50,15 +54,13 @@ export default {
     // Barrels only re-export; with excludeExternals the referenced declarations
     // all count as external and every page comes out empty.
     excludeExternals: false,
-    // `ViemChainAdapter.publicClient` inlines viem's whole client type, and
-    // viem's own JSDoc on each method links to its parameter/return aliases.
-    // None of those are ours to document, so every one of them is a warning and
-    // a dead link. The wildcard sends the lot to viem's docs in one line.
+    // Named viem types we reference are not ours to document, so the wildcard
+    // sends the lot to viem's docs in one line rather than leaving each a
+    // warning and a dead link.
     //
-    // Only symbols TypeScript resolves are reachable this way. A handful of
-    // viem's comments name aliases its current release no longer exports; a
-    // bare `{@link Foo}` parses with a local resolution start, which this
-    // option never consults, so those stay unresolved.
+    // Only symbols TypeScript resolves are reachable this way, and only on a
+    // global resolution start — the bare `{@link}`s inside viem's own comments
+    // are neither, which is what `scripts/lib/typedoc-viem.mjs` handles.
     externalSymbolLinkMappings: {
         viem: { "*": "https://viem.sh" },
     },

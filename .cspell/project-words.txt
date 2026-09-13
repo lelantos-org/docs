@@ -27,6 +27,7 @@ redenominate
 Sfrt
 shikijs
 snarkjs
+taceo
 toggleable
 Tramèr
 Twoslash

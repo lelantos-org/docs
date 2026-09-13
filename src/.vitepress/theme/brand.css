@@ -316,6 +316,21 @@
     backdrop-filter: blur(12px);
 }
 
+/* VitePress paints the bar in two pieces: past 960px the bar itself goes
+   transparent and `.content-body` carries `--vp-nav-bg-color` across the
+   region from the sidebar edge to the right gutter. Both colours are
+   `--lel-bg` by default, so the seam is invisible — until the glass above
+   replaces one of them and the middle band stays opaque against translucent
+   ends.
+
+   Zeroing it leaves the glass as the only layer, spanning the full width. The
+   class is tripled: VitePress ships the rule as
+   `.VPNavBar:not(.home.top) .content-body[data-v-…]`, and the compound inside
+   `:not()` counts, so 0,5,0 is the bar to clear. */
+.VPNavBar.VPNavBar:not(.home) .content-body.content-body.content-body {
+    background-color: transparent;
+}
+
 /* The sidebar scrolls but does not show a bar for it. It is a fixed column of
    links against the page ground, and a permanent track down its edge reads as
    a second divider competing with the real one. Scrolling itself — wheel,

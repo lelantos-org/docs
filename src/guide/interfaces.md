@@ -119,9 +119,7 @@ class StaticNoteSource implements NoteSource {
 import type { Submitter } from "@lelantos-org/sdk";
 import { HttpRelayerSubmitter } from "@lelantos-org/sdk";
 import type { RelayerSubmitResponse, SubmitTransactPayload } from "@lelantos-org/sdk/protocol";
-
-// `EstimateKind` is not exported on its own; derive it from the interface.
-type EstimateKind = Parameters<NonNullable<Submitter["estimate"]>>[1];
+import type { EstimateKind } from "@lelantos-org/sdk/wallet";
 
 /** Races two relayers and takes whichever answers first. */
 class RacingSubmitter implements Submitter {

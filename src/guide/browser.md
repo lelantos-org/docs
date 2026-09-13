@@ -101,7 +101,7 @@ Both options take a **factory** — `() => new Worker(...)` — rather than a UR
 
 `prove()` splits into witness generation and the Groth16 proof. Both are logged at `debug` on `lelantos:prover:wasm`.
 
-Cost scales with circuit arity. Timings vary enough across machines and thread counts that a quoted figure is worth little — measure your own targets from the `debug` log.
+Cost scales with circuit arity. Measured figures for the one shipped shape are in [Benchmarks](/guide/benchmarks); they move with the host, the thread count and the circuits release, so treat them as the scale of the thing and measure your own targets from the `debug` log.
 
 ::: warning One shape, and it must match the deployed verifier
 `TRANSACT_4X6` — four inputs, six outputs, 69 public-input coefficients, a ~48 MB zkey and a ~4 MB witness circuit. The six outputs are what let one spend carry its change, a shielded fee in a second asset, and that asset's change without a second round.
@@ -111,13 +111,7 @@ Narrower shapes are not built: each would cost a trusted-setup ceremony per rele
 The mismatch surfaces as a **rejected proof at submit time, not at connect**: the SDK cannot see which verifier a pool deployed.
 :::
 
-Witness generation is single-threaded and unaffected by thread count. Groth16 is the part rayon parallelises — measured at 3x3, on a 16-core Mac:
-
-| Threads | 4 | 8 | 16 |
-|---|---|---|---|
-| Groth16 | 1288 ms | 774 ms | 665 ms |
-
-Returns fall off sharply past 8 but have not vanished by 16, which is why the pool is not clamped low. Override with `configureProverThreads(n)`, `LELANTOS_PROVER_THREADS`, or `threads` on `WorkerProver`.
+Witness generation is single-threaded and unaffected by thread count; Groth16 is the part rayon parallelises, and it carries the whole difference between one thread and sixteen — see [Benchmarks](/guide/benchmarks) for the measured split. Set the pool with `configureProverThreads(n)`, `LELANTOS_PROVER_THREADS`, or `threads` on `WorkerProver`.
 
 ## Artifact caching
 

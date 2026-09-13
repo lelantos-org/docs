@@ -61,6 +61,7 @@ export const guideSidebar: DefaultTheme.SidebarItem[] = [
         text: "Advanced",
         items: [
             { text: "Fees", link: "/guide/fees" },
+            { text: "Benchmarks", link: "/guide/benchmarks" },
             { text: "Low-level primitives", link: "/guide/primitives" },
             { text: "Logging", link: "/guide/logging" },
             { text: "Errors", link: "/guide/errors" },
