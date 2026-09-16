@@ -1,8 +1,8 @@
 # How it fits together
 
-The SDK sits between your application and three independent parties: a set of **contracts** on an EVM chain, and three **backend services** that index and relay on the chain's behalf. None of them holds your keys, and none of them can move your funds.
+The SDK communicates with **contracts** on an EVM chain and three **backend services** that index and relay transactions. None of them holds keys or can move funds.
 
-This page maps who talks to whom, and — just as importantly — what the SDK deliberately never asks.
+This page shows which component talks to which, what each request contains, and which requests the SDK never makes.
 
 ## The whole system
 
@@ -29,7 +29,7 @@ This page maps who talks to whom, and — just as importantly — what the SDK d
 
   <rect x="394" y="126" width="158" height="66" rx="5" fill="var(--vp-c-bg-elv)" stroke="var(--vp-c-border)"/>
   <text x="473" y="152" text-anchor="middle" font-size="13" fill="var(--vp-c-text-1)">Quoter</text>
-  <text x="473" y="170" text-anchor="middle" font-size="11" fill="var(--vp-c-text-3)">fetchSwapQuote</text>
+  <text x="473" y="170" text-anchor="middle" font-size="11" fill="var(--vp-c-text-3)">quoteSwap</text>
 
   <rect x="568" y="126" width="166" height="66" rx="5" fill="var(--vp-c-bg-elv)" stroke="var(--vp-c-border)"/>
   <text x="651" y="152" text-anchor="middle" font-size="13" fill="var(--vp-c-text-1)">ChainAdapter</text>
@@ -82,40 +82,36 @@ This page maps who talks to whom, and — just as importantly — what the SDK d
   <text x="651" y="468" text-anchor="middle" font-size="11" fill="var(--vp-c-text-3)">canonical, external</text>
 </svg>
 
-Three things are worth reading off that picture.
-
-**Proving happens on your machine.** The prover is inside the SDK box, not out at a service. No secret — note values, `nsk`, the notes being spent — ever leaves the process.
-
-**Only two parties write to the chain.** Your own signer broadcasts deposits and cancellations. The relayer broadcasts everything else. There is no third writer.
-
-**The read path and the write path are different services.** `fmd-webserver` is read-only and never sees a transaction; the relayer never serves note data.
+- **Proving is local.** The prover runs inside the SDK. Secrets — `nsk`, note values, the notes being spent — never leave the process.
+- **Two parties write to the chain.** Your signer broadcasts deposits and cancellations. The relayer broadcasts all other transactions.
+- **Reads and writes use different services.** `fmd-webserver` is read-only and never receives transactions. The relayer does not serve note data.
 
 ## Who the SDK talks to
 
-| Party | SDK entry point | What it is asked for |
+| Party | SDK entry point | Requests |
 |---|---|---|
-| **fmd-webserver** | `FmdClient`, `NoteSource` | encrypted notes, commitment chunks, nullifier chunks, sync watermarks |
-| **relayer** | `RelayerClient`, `Submitter`, `DepositStream` | chain registry, fee estimates, spend submission, deposit-flush events |
-| **metaquoter** | `fetchSwapQuote` | best swap route and `minOut` |
-| **EVM chain** | `ChainAdapter` | asset registry, fee rate, deposit broadcast, escrow reads |
+| **fmd-webserver** | `FmdClient`, `NoteSource` | encrypted notes, commitment chunks, nullifier chunks, sync positions |
+| **relayer** | `RelayerClient`, `Submitter`, `DepositStream` | chain registry, fee estimates, swap wrapper address, spend submission, deposit flush events |
+| **metaquoter** | `quoteSwap`, `fetchSwapQuote` | swap route and `minOut` |
+| **EVM chain** | `ChainAdapter` | asset registry, fee rates, deposit broadcast, escrow state |
 
-The deployment also runs an explorer indexer, a risk-screening API, and a price feed. **The SDK contacts none of them** — they are not on any wallet path.
+The deployment also runs an explorer indexer, a risk-screening API, and a price feed. The SDK does not contact them.
 
-## What the SDK never asks
+## Requests the SDK never makes
 
-Several requests are absent by design, because making them would identify you to whoever answered.
+These requests would identify the wallet's notes to the server, so the SDK performs the work locally:
 
-| Never asked | Why | What happens instead |
+| Request not made | Reason | Local alternative |
 |---|---|---|
-| "Is nullifier `N` spent?" | naming a nullifier names a note you own | the whole spent set is mirrored and filtered locally |
-| "Give me the Merkle path for leaf `i`" | the leaf index identifies the note you are spending | the tree is rebuilt locally from an append-only chunk feed |
-| "Which notes are mine?" | that is the entire privacy property | every encrypted note is downloaded and trial-decrypted locally |
+| "Is nullifier `N` spent?" | a nullifier identifies a note the wallet owns | download the full spent set and check locally |
+| "Merkle path for leaf `i`" | the leaf index identifies the note being spent | rebuild the tree from the append-only chunk feed |
+| "Which notes are mine?" | reveals the wallet's notes | download all encrypted notes and trial-decrypt locally |
 
-The third is negotiable and the other two are not. [FMD](/guide/sync#sync-strategies) lets you delegate detection to the server in exchange for far less bandwidth — a deliberate, permanent, and non-default trade.
+The third can be delegated: the [`matches` sync strategy](/guide/sync#sync-strategies) sends a detection key to the server to reduce bandwidth. The delegation is opt-in and cannot be revoked.
 
-## Shielding: the path you broadcast
+## Deposit flow
 
-A deposit is the one operation your own signer sends. It is also the one with a settlement step after mining: escrowed funds are not in the tree until the relayer folds them in.
+A deposit is broadcast by your signer. After it is mined, the funds are in escrow until the relayer adds the note to the tree.
 
 <svg viewBox="0 0 780 360" width="100%" role="img" aria-label="Deposit sequence: the wallet signs and calls MASP.deposit, the relayer flushes the batch, and the wallet syncs the note from fmd-webserver." style="max-width:100%;height:auto">
   <defs>
@@ -161,11 +157,18 @@ A deposit is the one operation your own signer sends. It is also the one with a 
   <text x="390" y="310" text-anchor="middle" font-size="11" fill="var(--vp-c-text-1)">5 sync() — encrypted notes + commitment chunks</text>
 </svg>
 
-Steps 4 and 5 are why a freshly deposited note is not immediately spendable, and why [`DepositStream`](/guide/deposit#waiting-for-the-relayer-to-settle) exists.
+A new note is spendable only after steps 4 and 5. [`awaitDeposit`](/guide/deposit#waiting-for-the-relayer) waits for both; `DepositStream` observes step 4 directly.
 
-## Spending: the path the relayer broadcasts
+The relayer's fee for step 4 is part of the deposit. Every deposit creates two leaves, both bound by the signature in step 1:
 
-A transfer, withdraw, or swap is never sent by your signer. The spend proof binds the relayer's address, so the pool rejects a transaction that any other account submits.
+- the depositor's note;
+- a fee note addressed to the relayer.
+
+The fee note can use a different registered asset (`feeAsset`). The request records it as `feeAssetId`, and the pool transfers both tokens from the payer in the same transaction. The protocol fee is always in the deposited asset. If the relayer charges nothing, the fee leaf is a zero-value note to the depositor and `feeAssetId` is `0`.
+
+## Spend flow
+
+Transfers, withdrawals, and swaps are broadcast by the relayer, never by your signer. The spend proof binds the relayer's address, so the pool rejects the transaction from any other sender.
 
 <svg viewBox="0 0 780 340" width="100%" role="img" aria-label="Spend sequence: the wallet syncs, quotes the fee, proves locally, and submits to the relayer, which attaches a tree-update proof and calls the pool." style="max-width:100%;height:auto">
   <defs>
@@ -210,26 +213,24 @@ A transfer, withdraw, or swap is never sent by your signer. The spend proof bind
   <text x="490" y="298" text-anchor="middle" font-size="11" fill="var(--vp-c-text-3)">nullifiers + commitments indexed</text>
 </svg>
 
-The relayer sees a valid proof, its public inputs, and the fee note addressed to it. It does not learn which notes were spent, who the payee is, or the amount — those are the circuit's private inputs. What it does learn is your IP address and the timing of your submission.
+The relayer receives the proof, its public inputs, and its fee note. The spent notes, payee, and amount are private circuit inputs and are not revealed. The relayer does see the submitter's IP address and the submission time.
 
-::: tip The relayer is a pluggable, not a dependency
-`Submitter` is an interface. Race several relayers, route through your own, or broadcast directly from an account you control — see [Pluggable interfaces](/guide/interfaces#custom-submitter). The same is true of `NoteSource`: the FMD server is the default index, not the only possible one.
-:::
+The relayer and the FMD server are defaults, not requirements. `Submitter` and `NoteSource` are interfaces: you can use several relayers, run your own, submit directly from your own account, or use a different indexer. See [Pluggable interfaces](/guide/interfaces#custom-submitter).
 
-## What each party can and cannot see
+## Visibility by party
 
-| Party | Learns | Cannot learn |
+| Party | Can see | Cannot see |
 |---|---|---|
-| **fmd-webserver** | that some client fetched a page of the public feed | which notes are yours — under the default `full` strategy |
-| **relayer** | your IP, submission timing, the fee it is paid | spent notes, payee, amount |
-| **metaquoter** | that someone wants a route for a token pair and size | who is asking, or whether the swap happens |
-| **the chain** | a deposit's payer and amount; a withdraw's recipient and amount | anything about a shielded transfer beyond its existence |
+| **fmd-webserver** | that a client fetched a page of the public feed | which notes belong to the wallet (with the default `full` strategy) |
+| **relayer** | IP address, submission time, its fee | spent notes, payee, amount |
+| **metaquoter** | the token pair and size of a requested route | the requester's identity, and whether the swap is executed |
+| **the chain** | deposit payer and amount; withdrawal recipient and amount | the contents of shielded transfers, other than that they occurred |
 
-Shielding and unshielding are the visible edges. What happens between them is not.
+Only deposits and withdrawals are publicly visible. Shielded transfers are not.
 
 ## Next
 
-- [Concepts](/guide/concepts) — notes, nullifiers, the tree, FMD
-- [Syncing](/guide/sync) — the read path in detail
-- [Deposit](/guide/deposit) — the write path in detail
-- [Architecture](/guide/architecture) — how the SDK's own code is layered
+- [Concepts](/guide/concepts)
+- [Syncing](/guide/sync) — the read path
+- [Deposit](/guide/deposit) — the deposit path
+- [Architecture](/guide/architecture) — the SDK's module structure

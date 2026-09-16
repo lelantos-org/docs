@@ -4,12 +4,12 @@ import typedocSidebar from "../reference/typedoc-sidebar.json" with { type: "jso
 import { SDK_VERSION } from "./config/build-info.ts";
 import { footerMessage } from "./config/footer.ts";
 import { guideSidebar } from "./config/sidebar.ts";
+import { SITE_DESCRIPTION, SITE_TITLE, SITE_URL } from "./config/site.ts";
 import { twoslashCompilerOptions } from "./config/twoslash.ts";
 
 export default defineConfig({
-    title: "Lelantos SDK",
-    description:
-        "Client SDK for the Lelantos Multi-Asset Shielded Pool — shielded transfers, swaps, and client-side proving on EVM.",
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
     lang: "en-US",
     cleanUrls: true,
     // A dead link is a docs bug; fail the build rather than ship one. The one
@@ -42,8 +42,8 @@ export default defineConfig({
             },
         ]) as [string, Record<string, string>][]),
         ["meta", { property: "og:type", content: "website" }],
-        ["meta", { property: "og:title", content: "Lelantos SDK" }],
-        ["meta", { property: "og:url", content: "https://docs.lelantos.xyz" }],
+        ["meta", { property: "og:title", content: SITE_TITLE }],
+        ["meta", { property: "og:url", content: SITE_URL }],
     ],
     markdown: {
         // Warm-neutral, to sit on the warm ground. VitePress's default pair is
@@ -72,7 +72,10 @@ export default defineConfig({
             { text: "Reference", link: "/reference/" },
             {
                 text: `v${SDK_VERSION}`,
-                items: [{ text: "Releases", link: "https://github.com/lelantos-org/sdk/releases" }],
+                items: [
+                    { text: "Migrating from 0.38", link: "/guide/migration-0.38-to-0.39" },
+                    { text: "Releases", link: "https://github.com/lelantos-org/sdk/releases" },
+                ],
             },
         ],
         socialLinks: [{ icon: "github", link: "https://github.com/lelantos-org/sdk" }],

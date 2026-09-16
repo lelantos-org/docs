@@ -1,12 +1,12 @@
 # Watch-only wallets
 
-A viewing key lets someone read a shielded account without being able to spend from it. Import one and you get balances, notes and sync — the same reading surface a spending wallet has, with the spend half absent from the type.
+A viewing key gives read access to a shielded account without the ability to spend. A watch-only wallet created from one supports sync, notes, balances, and state; spending methods are absent from its type.
 
-This is what backs a balance display on a device that must never hold spend authority, read access for an accountant or auditor, and any dashboard or bot that reports on an account it cannot move funds out of.
+Use cases include balance displays on devices that must not hold spending keys, access for accountants and auditors, and monitoring services.
 
-## The two tiers
+## Key hierarchy
 
-Spend authority is `nsk`. Everything below it is a strictly smaller capability:
+The spending key `nsk` derives every other key:
 
 ```
 nsk ─┬─ ivk ─┬─ pk    binds the note commitment
@@ -15,72 +15,95 @@ nsk ─┬─ ivk ─┬─ pk    binds the note commitment
      └─ nk           derives nullifiers
 ```
 
-| | reads incoming notes | sees which notes are spent | spends |
+| Key | Reads incoming notes | Knows which notes are spent | Can spend |
 |---|---|---|---|
 | **Incoming viewing key** (`lelantosivk1…`) | yes | no | no |
 | **Full viewing key** (`lelantosfvk1…`) | yes | yes | no |
 | Spending key | yes | yes | yes |
 
-The difference between the two tiers is `nk`, and `nk` derives from `nsk` rather than from `ivk` — so an incoming viewing key cannot be upgraded into a full one. Without `nk` there is no way to recompute a note's nullifier, and so no way to tell a spent note from a live one.
+A full viewing key adds `nk`, which computes nullifiers. `nk` derives from `nsk`, not `ivk`, so an incoming viewing key cannot be upgraded to a full viewing key.
 
-That has a consequence worth stating plainly: **an incoming viewing key's `balance()` is everything the account has ever received**, not what remains. `spentKnown` says which you are looking at.
-
-::: danger Handing over a viewing key is permanent
-There is no rotation and no revocation. `ivk` is fixed by `nsk`, so a holder can decrypt every note the account has ever received and every note it receives from here on. The only way to take the capability back is to move the funds to a new account. Treat it the way you would treat a full transaction history, because that is what it is.
+::: warning An incoming viewing key reports received totals
+Without `nk` the wallet cannot tell spent notes from unspent ones. With an incoming viewing key, balances are the total ever received, not the current balance. Check `spentKnown`.
 :::
 
-## Exporting
+::: danger Viewing keys cannot be revoked
+A viewing key is fixed by `nsk`. Its holder can decrypt every past and future note received by the account. The only way to end that access is to move funds to a new account.
+:::
 
-<!-- typecheck: skip -->
-```ts
-import { encodeViewingKey, encodeFullViewingKey, viewingKeyFromSpending, fullViewingKeyFromSpending } from "@lelantos-org/sdk";
+## Exporting a key
 
-// Reads incoming notes only.
-const ivk = encodeViewingKey(viewingKeyFromSpending(wallet.keys));
+A spending wallet exposes both encodings on `keys`. Neither contains `nsk`.
 
-// Also settles which notes are spent.
-const fvk = encodeFullViewingKey(fullViewingKeyFromSpending(wallet.keys));
+```ts twoslash
+// ---cut-start---
+import type { WalletApi } from "@lelantos-org/sdk";
+declare const wallet: WalletApi;
+// ---cut-end---
+const ivk = wallet.keys.viewingKey; // "lelantosivk1…": incoming notes only
+const fvk = wallet.keys.fullViewingKey; // "lelantosfvk1…": also settles which notes are spent
 ```
 
-Both are bech32m, and the prefix names the tier. Neither carries `nsk`.
+Both are bech32m; the prefix identifies the tier. To encode a raw key object instead, use `encodeViewingKey` or `encodeFullViewingKey` (both root); `isFullViewingKey` narrows what `decodeViewingKey` returns.
 
-## Watching
+## Creating a watch-only wallet
 
-<!-- typecheck: skip -->
-```ts
+`connectWatch` lives on its own subpath, so a viewer's bundle never reaches the prover, the relayer submitter, or the coin selector.
+
+```ts twoslash
+// ---cut-start---
+declare const fvk: string;
+// ---cut-end---
+import { formatAmount } from "@lelantos-org/sdk";
 import { connectWatch } from "@lelantos-org/sdk/watch";
 
-await using watch = await connectWatch({ network: "anvil", viewingKey: fvk });
+await using watch = await connectWatch({
+    network: "base",
+    rpcUrl: "https://base-rpc.example.com", // for asset metadata; omit to read notes only
+    viewingKey: fvk,
+});
 
 await watch.sync();
 
-watch.address;              // the account being watched, derived from the key
-watch.spentKnown;           // true for an FVK, false for an IVK
-watch.balance(assetId(1n));
-watch.notes({ spent: false });
+watch.address; // the account being watched, derived from the key
+watch.spentKnown; // true for a full viewing key, false for an incoming one
+watch.keys.tier; // "full" | "incoming"
+
+const usdc = await watch.balance("USDC");
+console.log(formatAmount(usdc.total, usdc.asset, { symbol: true }));
 ```
 
-`connectWatch` takes either tier, or an already-decoded `ViewingKey` / `FullViewingKey`. Which one it got is read off the key rather than passed as a flag, and surfaces as `spentKnown`.
+`connectWatch` returns a `ReadOnlyWalletApi` (exported from the root). It accepts an encoded key of either tier, or a decoded `ViewingKey` / `FullViewingKey`; the tier is detected from the key.
 
-For full control over the pluggable dependencies, `WatchWallet.create(key, cfg)` is the counterpart to `Wallet.create`.
+| Option | Description |
+|---|---|
+| `network`, `rpcUrl` | as for `connect`; `rpcUrl` is optional here |
+| `viewingKey` | either tier, encoded or decoded |
+| `reader` | a pre-built `ChainReader` for asset metadata, instead of `rpcUrl` |
+| `scanner`, `http`, `denominations`, `wasm`, `runtime` | as for `connect` |
+| `storage` | `{ notes?, nullifiers? }`; a watch wallet has no tree |
+| `syncStrategy` | default `full`; `matches` also requires `allowDetectionKeyRelease: true` |
 
-## What it does not load
+Without `rpcUrl` or `reader`, no RPC is contacted: `sync`, `notes`, and `state` work, while `asset`, `assets`, and `balance` reject `WALLET_CONFIG`. `state().balances` still reports unspent totals per asset id.
 
-`@lelantos-org/sdk/watch` is a separate entry point rather than a flag on `connect()`, and that is the point of it. A watch wallet cannot sign anything, so its module graph contains no prover, no relayer submitter and no coin selector. It also keeps no Merkle tree: the tree exists to witness a spend, and skipping it removes the commitment-chunk download and the tree rebuild — by far the most expensive part of a cold sync.
+For explicit configuration, `createWatchWallet(key, config)` in `@lelantos-org/sdk/advanced` is the counterpart of `createWallet`.
 
-The `deposit`, `transfer`, `withdraw` and `swap` methods are not merely disabled; they are absent from `ReadOnlyWalletApi`, so calling one is a compile error rather than a runtime throw.
+## Differences from a spending wallet
 
-## Asset metadata is optional
+| | Spending wallet | Watch-only wallet |
+|---|---|---|
+| Entry point | `connect` from `@lelantos-org/sdk` | `connectWatch` from `@lelantos-org/sdk/watch` |
+| Returns | `WalletApi` | `ReadOnlyWalletApi` |
+| Spend and quote methods | present | absent from the type (compile-time error) |
+| Prover, submitter, coin selector | loaded on demand | not in the module graph |
+| Merkle tree | synced with `scope: "full"` | never synced; every sync is `"notes"` |
+| Chain access | required | optional; needed only for asset metadata and `balance` |
+| `matches` sync strategy | allowed | requires `allowDetectionKeyRelease: true` |
 
-Balances and notes come from the local note cache and need no chain access. `chain` is therefore optional, and `asset()` / `assets()` are the only calls that need it — a viewer reporting circuit-unit amounts never has to reach an RPC.
-
-## Sync strategy
-
-A watch wallet defaults to the `full` note feed, and refuses a `matches` subscription unless you pass `allowDetectionKeyRelease: true`.
-
-Registering a detection key is not a delegate's decision to make. The subscription posts the γ detection scalars, and the public `h` values mean any single one of them yields the account's root detection secret — permanently, for the *owner*, not for the viewer. See [Syncing](/guide/sync) for the mechanics.
+A watch-only wallet requires `allowDetectionKeyRelease: true` for the `matches` strategy because registering a detection key permanently exposes the **owner's** incoming notes to the server. That decision belongs to the account owner, not the viewer. See [Sync strategies](/guide/sync#sync-strategies).
 
 ## Next
 
-- [Syncing](/guide/sync) — the note feed, detection keys, and what each strategy costs
-- [Addresses](/guide/addresses) — the address a viewing key resolves to
+- [Syncing](/guide/sync)
+- [Balances and state](/guide/state)
+- [Addresses](/guide/addresses)

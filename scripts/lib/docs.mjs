@@ -20,44 +20,71 @@ export async function guidePages() {
     const out = [];
     for await (const file of glob("src/**/*.md", {
         cwd: ROOT,
-        exclude: (p) => p.includes("reference"),
+        // A prefix, not a substring: a guide page named `references.md` is
+        // hand-written and must still be checked.
+        exclude: (p) => p === "src/reference" || p.startsWith("src/reference/"),
     })) {
         out.push(file);
     }
     return out.sort();
 }
 
-const FENCE = /^```(ts|typescript)\b(.*)$/;
+const OPEN = /^(\s*)```(\w*)(.*)$/;
+const CLOSE = /^\s*```\s*$/;
 const SKIP = /<!--\s*typecheck:\s*skip\s*-->/;
+
+/**
+ * Every fenced code block in a markdown document, in order.
+ *
+ * `start` and `end` are the 0-based line indexes of the opening and closing
+ * fence; `body` is the lines between. Opening fences may be indented, since a
+ * fence inside a list item is indented and is still a fence. Walking whole
+ * blocks, rather than matching openings line by line, means a fence quoted
+ * inside another block is content, not a block of its own.
+ *
+ * The one place that parses fences: `check:fences` and `gen:llms` both read
+ * through it, so they cannot disagree about where a block begins or ends.
+ */
+export function fences(md) {
+    const lines = md.split("\n");
+    const out = [];
+    for (let i = 0; i < lines.length; i++) {
+        const m = OPEN.exec(lines[i]);
+        if (!m) continue;
+        const start = i;
+        while (i + 1 < lines.length && !CLOSE.test(lines[i + 1])) i++;
+        const end = Math.min(i + 1, lines.length);
+        out.push({
+            start,
+            end,
+            indent: m[1],
+            lang: m[2],
+            attrs: m[3],
+            body: lines.slice(start + 1, end),
+        });
+        i = end;
+    }
+    return out;
+}
 
 /**
  * Every TypeScript fence in a markdown document.
  *
- * The opening pattern is `^```(ts|typescript)\b` rather than the SDK's
- * `\s*$`: attribute-carrying fences (```ts twoslash, ```ts{3,5}) must be seen,
- * not silently ignored — being ignored is the failure this scanner exists to
- * catch. Returns `{ line, lang, attrs, twoslash, skipped }` per fence.
+ * Attribute-carrying fences (```ts twoslash, ```ts{3,5}) must be seen, not
+ * silently ignored — being ignored is the failure this scanner exists to catch.
+ * Returns `{ line, lang, attrs, twoslash, skipped }` per fence.
  */
 export function tsFences(md) {
     const lines = md.split("\n");
-    const out = [];
-    for (let i = 0; i < lines.length; i++) {
-        const m = FENCE.exec(lines[i]);
-        if (!m) continue;
-        const attrs = m[2] ?? "";
-        out.push({
-            line: i + 1,
-            lang: m[1],
-            attrs,
-            twoslash: /\btwoslash\b/.test(attrs),
-            skipped: i > 0 && SKIP.test(lines[i - 1]),
-        });
-        // Advance past the closing fence so nested content is not rescanned.
-        while (i < lines.length && !/^```\s*$/.test(lines[++i])) {
-            /* advance */
-        }
-    }
-    return out;
+    return fences(md)
+        .filter((f) => f.lang === "ts" || f.lang === "typescript")
+        .map((f) => ({
+            line: f.start + 1,
+            lang: f.lang,
+            attrs: f.attrs,
+            twoslash: /\btwoslash\b/.test(f.attrs),
+            skipped: f.start > 0 && SKIP.test(lines[f.start - 1]),
+        }));
 }
 
 /** Print a failure with its remedy and exit non-zero. */

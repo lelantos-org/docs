@@ -1,128 +1,160 @@
 # Chain adapters
 
-The `ChainAdapter` is the only part of the SDK that talks to a chain. `ViemChainAdapter` ships with the SDK and is what `connect()` builds; implement the interface yourself to drive ethers, web3.js, or a hardware wallet.
+The chain port is the SDK's only interface to the chain. `connect()` builds the viem implementation from `rpcUrl` and the chain-layer option; implement the port yourself to use another client library, a custom signer, or a transport `connect` does not cover. Everything on this page is in `@lelantos-org/sdk/advanced`.
 
-## What the adapter is responsible for
+## Two halves
 
-- **Signing the Permit2 witness** that binds a deposit and its ERC-20 pull into one atomic transaction, so there is no separate `approve`.
-- **Resolving asset metadata** — `scale`, the asset's two protocol fee rates and its yield index from the MASP registry, and `symbol`/`decimals` when it implements `tokenMeta`.
-- **Broadcasting deposits**, and reading back the escrow state that `cancelDeposit` needs.
-- **Reporting the chain tip**, which is what makes the selector's spend cooldown work at all.
+| Interface | Holds | Used by |
+|---|---|---|
+| `ChainReader` | everything a chain can answer without a key: registry, tree roots, token state, receipts | every wallet: sync, spends, quotes, `asset()` |
+| `ChainAdapter` | `ChainReader` plus signing as the user's EOA and the deposit, cancel, and Permit2 writes | deposits, `cancelDeposit`, `setupDepositAllowance` |
 
-Adapters must be deterministic with respect to their constructor inputs — no hidden global state.
+A spend is authorized by its proof and broadcast by the relayer, so the spend path only ever reads. A wallet built on a `ChainReader` (`reader`, or `readOnly: true`) transfers, withdraws, and swaps normally; only its deposit methods reject `NO_EVM_ACCOUNT`.
 
-## The required surface
+An adapter's behaviour must depend only on its constructor arguments, not on global state.
 
-Five methods are mandatory. Everything else is optional and feature-probed.
+## Implementing a reader
 
-<!-- typecheck: skip -->
-```ts
-import type { AssetEntry, ChainAdapter, Permit2SignArgs } from "@lelantos-org/sdk";
+`chainId`, `maspAddress`, and `fetchAsset` are the required members; every other read is optional.
 
-class EthersChainAdapter implements ChainAdapter {
-    async chainId(): Promise<bigint> { ... }
-    async payerAddress(): Promise<string> { ... }
-    async maspAddress(): Promise<string> { ... }
-    async fetchAsset(id: bigint): Promise<AssetEntry> { ... }
+```ts twoslash
+// ---cut-start---
+declare function readRegistry(id: bigint): Promise<{ token: `0x${string}`; scale: bigint; disabled: boolean; depositBps: bigint; withdrawBps: bigint; index: bigint; yieldEnabled: boolean }>;
+// ---cut-end---
+import { evmAddress, type AssetId, type EvmAddress } from "@lelantos-org/sdk";
+import type { AssetEntry, ChainReader } from "@lelantos-org/sdk/advanced";
 
-    async signPermit2(args: Permit2SignArgs) {
-        // Drive your signer to produce the Permit2 witness signature bound
-        // to `args.piHash`.
+export class MyChainReader implements ChainReader {
+    constructor(
+        private readonly id: bigint,
+        private readonly pool: EvmAddress,
+    ) {}
+
+    async chainId(): Promise<bigint> {
+        return this.id;
+    }
+
+    async maspAddress(): Promise<EvmAddress> {
+        return this.pool;
+    }
+
+    async fetchAsset(id: AssetId): Promise<AssetEntry> {
+        const entry = await readRegistry(id);
+        return { ...entry, token: evmAddress(entry.token) };
     }
 }
 ```
 
-`AssetEntry` carries the fee rates: `depositBps` and `withdrawBps`, per asset and per leg. There is no `fetchFeeBps`: the contracts carry both rates on the registry entry, so they are resolved with the asset. An adapter reading a pool with no yield mixin omits `index` and `yieldEnabled`, which is read as `RAY` and `false`.
+Addresses are branded `EvmAddress` values: build them with `evmAddress()`, which validates and checksums.
 
-A yield-bearing entry should also carry `rate` — the pool's own `{ gross, supply }` pair. It is not a more precise `index`, it is a different number: `index` is floored on chain, so a deposit sized through it can quote *under* what the contract actually pulls, and the Permit2 transfer is then refused. An adapter that omits `rate` on a yielding asset does not lose precision — it makes deposits of that asset fail. `scale` is not a fallback either; it is wrong by whatever the venue has earned.
+### `AssetEntry`
 
-::: tip Why this block is not typechecked
-The `...` bodies are illustrative rather than real implementations. The interface is fully documented in the [reference](/reference/chain/).
+| Field | Notes |
+|---|---|
+| `token`, `scale`, `disabled` | the registry entry |
+| `depositBps`, `withdrawBps` | per-asset fee rates, read with the entry; there is no separate fee method |
+| `index`, `yieldEnabled` | the pool's yield index (RAY-scaled; `RAY` for a plain asset) and whether the asset yields; both required |
+| `rate` | `{ gross, supply }`; **required** for yield-bearing assets |
+
+::: warning Provide `rate` for yield-bearing assets
+`index` is floored on chain, so a deposit sized from it can be lower than the amount the contract pulls, and the Permit2 transfer fails. Without `rate`, deposits of a yield-bearing asset fail. `scale` is not a substitute.
 :::
 
-## Optional methods change what the wallet can do
+### Optional reads
 
-An adapter that omits an optional method does not fail — the wallet simply loses the path that needed it. That is deliberate, and it means a UI should probe rather than assume.
+When an optional member is missing, the dependent feature is unavailable; nothing else fails.
 
-| Method | Omitting it means |
+| Member | Without it |
 |---|---|
-| `tokenMeta` | no `symbol`/`decimals`; human-unit conversion throws |
-| `blockNumber` | the selector's spend cooldown is inert |
-| `submitDepositNative` + `nativeAdapterAddress` | no native-ETH deposit or unshield |
-| `submitDepositAuthorized` + the Permit2 allowance methods | no allowance-mode deposits |
-| `cancelDeposit` | escrowed deposits cannot be reclaimed |
-| `waitTxReceipt` | no confirmation wait after broadcast |
-| `isKnownRoot` | the local commitment mirror is the last word on whether a root is still accepted |
+| `tokenMeta` | no `symbol` / `decimals`; human-unit conversion throws |
+| `blockNumber` | the spend cooldown is inactive, and `cancellableAtBlock` cannot be compared with the tip |
+| `isKnownRoot` | root validity is determined from the commitment feed only |
+| `nativeAdapterAddress` | no native deposits or withdrawals |
+| `tokenBalanceOf`, `nativeBalance`, `tokenAllowance`, `permit2Allowance` | `quoteDeposit` reports `balance` / `allowance` as `undefined` |
+| `getEscrowed`, `fetchDepositEscrowed`, `cancelDelay` | no cancel by `depositId`; `cancellableAtBlock` uses a conservative bound |
+| `waitTxReceipt`, `txReceiptLogs` | no confirmation wait after broadcast; results carry no `operation` |
 
-Three named guards narrow an adapter to the capability set a path needs:
+## Implementing an adapter
+
+A `ChainAdapter` adds `payerAddress` and `signPermit2`, both required, plus the writes for the deposit paths your chain supports.
+
+| Member | Enables |
+|---|---|
+| `submitDeposit` | the `witness` strategy (a Permit2 signature per deposit) |
+| `submitDepositAuthorized`, `permit2Allowance`, `permit2PermitAllowance`, `signPermit2Allowance` | the `allowance` strategy |
+| `signPermit2AllowanceBatch`, `permit2PermitAllowanceBatch`, `tokenApprove`, `tokenAllowance` | `setupDepositAllowance` |
+| `submitDepositNative` + `nativeAdapterAddress` | native deposits |
+| `cancelDeposit`, `cancelDepositNative` | reclaiming escrows |
+
+Each deposit write resolves once mined with `{ txHash, depositId, blockNumber, escrowed }`, where `escrowed` is the pool's decoded `DepositEscrowed` log. A signing failure from the user should reject with `UserRejectedError`; the viem adapter maps EIP-1193 code `4001` for you.
+
+Type guards narrow a reader to a capability:
 
 ```ts twoslash
 // ---cut-start---
-import type { ChainAdapter } from "@lelantos-org/sdk";
-declare const chain: ChainAdapter;
+import type { ChainReader } from "@lelantos-org/sdk/advanced";
+declare const chain: ChainReader;
 // ---cut-end---
 import {
     supportsAllowanceBatch,
     supportsAllowanceTransfer,
     supportsNativeEth,
-} from "@lelantos-org/sdk";
+    supportsSigning,
+} from "@lelantos-org/sdk/advanced";
 
+if (supportsSigning(chain)) {
+    // `chain` is a ChainAdapter here.
+    await chain.payerAddress();
+}
 if (supportsNativeEth(chain)) {
-    // `submitDepositNative` and `nativeAdapterAddress` are both non-optional here.
-    chain.nativeAdapterAddress();
+    chain.nativeAdapterAddress(); // non-optional here
 }
 
 const canSetUpAllowance = supportsAllowanceTransfer(chain);
 const canBatchAllowances = supportsAllowanceBatch(chain); // strictly narrower
 ```
 
-Deposit strategies (`native`, `allowance`, `witness`) are chosen per-asset from these probes; a mismatch raises `DepositAdapterError`.
+Code holding a wallet can read `wallet.capabilities` instead, which answers the same questions from the same checks.
 
-## Reaching adapter-specific methods
+## Adapter-specific reads
 
-`WalletApi.chain` is typed as the interface, so anything beyond it needs a cast to the concrete adapter — which is exactly what `ViemChainAdapter`'s escrow readers require.
+`wallet.chain` is typed as `ChainReader`. Narrow it with a guard, or check a member, to call an optional read:
 
 ```ts twoslash
 // ---cut-start---
-import { connect } from "@lelantos-org/sdk";
-const wallet = await connect({
-    privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-    network: "anvil",
-    rpcUrl: "http://localhost:8545",
-});
+import type { WalletApi } from "@lelantos-org/sdk";
+declare const wallet: WalletApi;
+declare const depositId: bigint;
 // ---cut-end---
-import type { ViemChainAdapter } from "@lelantos-org/sdk/chain";
-
-const chain = wallet.chain as ViemChainAdapter;
-const record = await chain.fetchDepositEscrowed(1n);
+const record = await wallet.chain.fetchDepositEscrowed?.(depositId);
 //    ^?
 ```
 
-## Building one directly
+## Constructing the viem adapter
 
-`ViemChainAdapter` takes an `EthSigner`, which is the SDK's own signing abstraction — `PrivateKeySigner` for a raw key, `Eip1193Signer` for a browser provider. Build the adapter yourself when you want a `NativeAdapter` address, a pinned `chainId`, or a signer the `connect()` options do not cover.
+`ViemChainAdapter` takes an `EthSigner`: `PrivateKeySigner` for a raw key, or `Eip1193Signer` for a browser provider. `ViemChainReader` is the read-only half. Build one directly to set options `connect` does not expose, such as `cacheTimeMs`, then pass it as `chain` (or `reader`) with an explicit key source.
 
 ```ts twoslash
 // ---cut-start---
-declare const maspAddress: string;
 declare const rpcUrl: string;
+declare const nsk: bigint;
+declare const privateKey: `0x${string}`;
 // ---cut-end---
-import { connect, PrivateKeySigner, ViemChainAdapter } from "@lelantos-org/sdk";
+import { connect, NETWORKS } from "@lelantos-org/sdk";
+import { PrivateKeySigner, ViemChainAdapter } from "@lelantos-org/sdk/advanced";
+
+const base = NETWORKS.base;
 
 const chain = new ViemChainAdapter({
     rpcUrl,
-    signer: new PrivateKeySigner(
-        "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-        rpcUrl,
-        31337n, // the signer pins its own chainId
-    ),
-    maspAddress,
-    nativeAdapterAddress: "0x0000000000000000000000000000000000000001",
+    signer: new PrivateKeySigner(privateKey, rpcUrl, base.chainId), // the signer pins its chain id
+    maspAddress: base.maspAddress,
+    chainId: base.chainId,
+    cacheTimeMs: 0, // default: every blockNumber() reads the chain
 });
 
-// A pre-built adapter exposes no signing key, so the shielded key source
-// must be supplied explicitly.
-const wallet = await connect({ chain, network: "anvil", nsk: 1n });
+// A pre-built adapter exposes no key to derive from, so the shielded key source is explicit.
+const wallet = await connect({ network: "base", chain, nsk });
 ```
 
 ## Next

@@ -1,124 +1,200 @@
 # Browser usage
 
-Everything the SDK does in Node it also does in a browser, with three differences that need setting up explicitly: the Content Security Policy has to permit WASM, prover artifacts have no default source, and the two CPU-bound jobs — proving and trial decryption — belong off the main thread.
+The SDK runs in browsers with the same API as on Node. Browser applications need a few additional steps:
 
-## Content Security Policy
+1. Allow WebAssembly in the Content Security Policy, and serve the page cross-origin isolated.
+2. Keep the bundler from rewriting the SDK's wasm glue.
+3. Provide the prover artifact URLs.
+4. Run proving and trial decryption in Web Workers.
 
-The WASM prover needs `'wasm-unsafe-eval'` in your `script-src`. Without it the module will not instantiate.
+## Content Security Policy and isolation
+
+The WASM prover requires `'wasm-unsafe-eval'` in `script-src`. Neither `eval` nor `new Function` is used:
 
 ```
 script-src 'self' 'wasm-unsafe-eval';
 ```
 
-Multi-threaded proving additionally needs cross-origin isolation, which is a pair of response headers on the document:
+Multi-threaded proving and the scanner pool use `SharedArrayBuffer`, which browsers gate behind cross-origin isolation. Set these headers on the document:
 
 ```
 Cross-Origin-Opener-Policy: same-origin
 Cross-Origin-Embedder-Policy: require-corp
 ```
 
-## Prover artifacts have no browser default
+Without cross-origin isolation, the SDK proves with snarkjs instead of single-threaded WASM, which is faster in that case, and logs a warning on `lelantos:wallet:prover`.
 
-On Node, `connect()` resolves artifacts from the companion `@lelantos-org/circuits` package. **There is no browser equivalent** — the companion is on GitHub Packages, which is not CDN-proxiable — so a browser caller must say where the circuit and proving key live.
+## Bundler configuration
+
+Bundlers that pre-bundle the SDK rewrite the wasm-pack glue's `new URL("<crate>_bg.wasm", import.meta.url)` into a path that does not exist at runtime. The SDK catches that and falls back to slower JS, so the symptom is not an error but a wallet roughly ten times slower at sync. In Vite:
 
 ```ts twoslash
 // ---cut-start---
-import { connect } from "@lelantos-org/sdk";
-declare const signer: never;
+declare function defineConfig(config: {
+    optimizeDeps?: { exclude?: string[] };
+    worker?: { format?: "es" | "iife" };
+}): unknown;
+// ---cut-end---
+export default defineConfig({
+    optimizeDeps: { exclude: ["@lelantos-org/sdk"] },
+    worker: { format: "es" },
+});
+```
+
+Every such degradation is logged, and SDK logging is off until you install a sink, so enable it at least in development — see [Logging](/guide/logging). If excluding the package is not an option, pass pre-resolved module URLs as `wasm` to `connect()`.
+
+## Prover artifacts
+
+On Node, the prover loads artifacts from `@lelantos-org/circuits`. In a browser there is no default: host the circuit and proving key and pass their URLs.
+
+```ts twoslash
+// ---cut-start---
+import type { Eip1193ProviderLike } from "@lelantos-org/sdk";
+declare const provider: Eip1193ProviderLike;
+declare const address: `0x${string}`;
 declare const rpcUrl: string;
 // ---cut-end---
+import { connect } from "@lelantos-org/sdk";
+
 const wallet = await connect({
-    signer,
-    network: "mainnet",
+    network: "base",
     rpcUrl,
-    proverArtifacts: {
-        circuit: "https://cdn.example.com/4x6.wasm",
-        zkey: "https://cdn.example.com/4x6_final.zkey",
+    provider,
+    address,
+    prover: {
+        artifacts: {
+            circuit: "https://cdn.example.com/4x6.wasm",
+            zkey: "https://cdn.example.com/4x6_final.zkey",
+        },
     },
 });
 ```
 
-Or point `proverArtifactsCdn` at a base URL serving `<shape>.wasm` and `<shape>_final.zkey` at its root, and the SDK derives both names from the configured shape.
+Alternatively, set `prover: { cdn }` to a base URL that serves `<shape>.wasm` and `<shape>_final.zkey`; the SDK derives both file names from the circuit shape.
+
+Nothing is downloaded at `connect()`. With the default `warmup: "lazy"`, artifacts are fetched at the first proof; call `wallet.warmProver()` when the user opens a send form, or set `warmup: "eager"` to start in the background right after connecting. A missing artifact configuration surfaces then, as `PROVER_ARTIFACTS_MISSING`.
+
+### Circuit shape
+
+The SDK ships one circuit, `TRANSACT_4X6`: four inputs and six outputs, with a ~48 MB zkey and a ~4 MB witness circuit. Six outputs fit the payment, change, a relayer fee in a second asset, and that asset's change in one transaction.
+
+::: warning The pool's verifier must match the circuit
+A pool deployed with a verifier for a different shape cannot be used. The SDK cannot detect the verifier at `connect()`; the mismatch appears as a rejected proof at submission.
+:::
 
 ## Keeping the main thread free
 
-Two jobs are CPU-bound and will block the UI if left where they are: generating a proof, and trial-decrypting the note feed. Move both into workers.
+Proving and trial decryption are CPU-bound and block the thread they run on. Run both in Web Workers by passing worker factories to `connect()`. The SDK publishes the worker entry points as `@lelantos-org/sdk/workers/prover` and `@lelantos-org/sdk/workers/scanner`.
 
 ```ts twoslash
 // ---cut-start---
-import { connect } from "@lelantos-org/sdk";
-declare const wasmUrl: string;
-declare const zkeyUrl: string;
-declare const signer: never;
+import type { Eip1193ProviderLike } from "@lelantos-org/sdk";
+declare const provider: Eip1193ProviderLike;
+declare const address: `0x${string}`;
 declare const rpcUrl: string;
+declare const circuit: string;
+declare const zkey: string;
 // ---cut-end---
-import { browserWorkerProver } from "@lelantos-org/sdk/prover";
-import { browserWorkerScanner } from "@lelantos-org/sdk/sync";
+import { connect } from "@lelantos-org/sdk";
 
 const wallet = await connect({
-    signer,
-    network: "mainnet",
+    network: "base",
     rpcUrl,
-    prover: browserWorkerProver({
-        // The `new Worker(...)` expression must sit at your own ESM call site
-        // so the bundler can see it.
+    provider,
+    address,
+    prover: {
+        artifacts: { circuit, zkey },
+        // The `new Worker(new URL(...))` expression must sit at your own call site
+        // so the bundler emits a worker chunk for it.
         worker: () =>
-            new Worker(new URL("@lelantos-org/sdk/prover-worker", import.meta.url), {
+            new Worker(new URL("@lelantos-org/sdk/workers/prover", import.meta.url), {
                 type: "module",
             }),
-        paths: { circuit: wasmUrl, zkey: zkeyUrl },
-    }),
-    scanner: browserWorkerScanner({
-        worker: () =>
-            new Worker(new URL("@lelantos-org/sdk/scanner-worker", import.meta.url), {
+    },
+    scanner: {
+        workers: () =>
+            new Worker(new URL("@lelantos-org/sdk/workers/scanner", import.meta.url), {
                 type: "module",
             }),
-        size: 4, // defaults to navigator.hardwareConcurrency, clamped 2–8
-    }),
+        size: 4, // default 2–8, by hardware concurrency
+    },
 });
 
 // Each worker owns a WASM heap. Release them when tearing the wallet down.
 await wallet.dispose();
 ```
 
-::: warning Spawn the worker in your own module, with `new URL(..., import.meta.url)`
-Both options take a **factory** — `() => new Worker(...)` — rather than a URL, and the `new Worker(new URL(...), ...)` expression must be written literally at your call site. Bundlers emit a worker chunk only for that exact form; a URL threaded through a helper is invisible to them, and Vite will inline the worker entry as a `data:` URL whose relative imports then fail at runtime. The factory is also what lets `WorkerPoolScanner` respawn a dead worker, and it accommodates the other spellings a bundler may require — `import W from "…?worker"`, then `() => new W()`.
+A DOM `Worker` satisfies the SDK's `WorkerLike` type directly; no cast or adapter is needed.
+
+::: warning Write `new Worker(new URL(..., import.meta.url))` at the call site
+Both options take a factory function, not a worker or a URL. Bundlers emit a worker chunk only when this exact expression appears in your source. Passing the URL through a helper function hides it from the bundler; Vite then inlines the worker as a `data:` URL and its imports fail at runtime.
+
+The factory also lets the scanner pool restart a crashed worker. Bundler-specific forms work too, for example `import ProverWorker from "…?worker"` with `() => new ProverWorker()`.
 :::
 
-::: tip Passing a custom `prover` skips artifact resolution
-`proverArtifacts` and `proverArtifactsCdn` configure the *default* prover. When you supply a `prover`, its own `paths` are the only thing consulted.
-:::
+A proof blocks its calling thread even with multi-threading enabled, so a worker prover is required to keep the UI responsive.
 
-## Prover performance
+### Pre-built workers
 
-- The **WASM prover is the default**. It parses the zkey once per session and reuses it across proofs; snarkjs is the automatic fallback when the WASM module cannot load.
-- **Without cross-origin isolation** the SDK routes to snarkjs, which benches faster than single-threaded WASM.
-- `prove()` **blocks its calling thread** even with rayon workers — which is why the worker prover above is not merely an optimisation.
+For settings the `ProverConfig` shorthand does not expose, build the worker prover yourself with `browserWorkerProver` from `@lelantos-org/sdk/prover` and pass it as `prover`. The same applies to `browserWorkerScanner` from `@lelantos-org/sdk/advanced`.
 
-`connect()` starts the zkey fetch and parse in the background by default (`proverWarmup: "eager"`), so the first transaction skips the multi-second setup. Pass `proverWarmup: "lazy"` to defer it to the first `prove()` instead.
+A `Prover` or `Scanner` instance you pass is yours: `wallet.dispose()`, and a `connect` that fails, leave it running. That lets one prover serve every wallet in a tab; release it yourself when you are done with it. Workers the SDK builds from `prover: { worker }` or `scanner: { workers }` are the wallet's and go with `dispose()`.
 
-## Where the time goes
+```ts twoslash
+// ---cut-start---
+import type { Eip1193ProviderLike } from "@lelantos-org/sdk";
+declare const provider: Eip1193ProviderLike;
+declare const address: `0x${string}`;
+declare const rpcUrl: string;
+declare const circuit: string;
+declare const zkey: string;
+// ---cut-end---
+import { connect } from "@lelantos-org/sdk";
+import { browserWorkerScanner } from "@lelantos-org/sdk/advanced";
+import { browserWorkerProver } from "@lelantos-org/sdk/prover";
 
-`prove()` splits into witness generation and the Groth16 proof. Both are logged at `debug` on `lelantos:prover:wasm`.
+const prover = browserWorkerProver({
+    worker: () =>
+        new Worker(new URL("@lelantos-org/sdk/workers/prover", import.meta.url), {
+            type: "module",
+        }),
+    artifacts: { circuit, zkey },
+    threads: 4,
+    cacheArtifacts: false, // skip the worker's Cache API copy
+});
+const scanner = browserWorkerScanner({
+    worker: () =>
+        new Worker(new URL("@lelantos-org/sdk/workers/scanner", import.meta.url), {
+            type: "module",
+        }),
+    size: 4,
+});
 
-Cost scales with circuit arity. Measured figures for the one shipped shape are in [Benchmarks](/guide/benchmarks); they move with the host, the thread count and the circuits release, so treat them as the scale of the thing and measure your own targets from the `debug` log.
+const wallet = await connect({ network: "base", rpcUrl, provider, address, prover, scanner });
 
-::: warning One shape, and it must match the deployed verifier
-`TRANSACT_4X6` — four inputs, six outputs, 69 public-input coefficients, a ~48 MB zkey and a ~4 MB witness circuit. The six outputs are what let one spend carry its change, a shielded fee in a second asset, and that asset's change without a second round.
+// Teardown: the wallet does not own the instances it was given.
+await wallet.dispose();
+await scanner.dispose();
+prover.dispose();
+```
 
-Narrower shapes are not built: each would cost a trusted-setup ceremony per release and 20-40 MB in every install, and none covers anything this one does not. **A pool on a narrower verifier cannot be served** — there are no keys to load, and a 4x6 proof carries six commitments, which such a verifier rejects.
+## Threads and timing
 
-The mismatch surfaces as a **rejected proof at submit time, not at connect**: the SDK cannot see which verifier a pool deployed.
-:::
+Proving has two phases, both logged at `debug` on `lelantos:prover:wasm`:
 
-Witness generation is single-threaded and unaffected by thread count; Groth16 is the part rayon parallelises, and it carries the whole difference between one thread and sixteen — see [Benchmarks](/guide/benchmarks) for the measured split. Set the pool with `configureProverThreads(n)`, `LELANTOS_PROVER_THREADS`, or `threads` on `WorkerProver`.
+| Phase | Threads |
+|---|---|
+| witness generation | single-threaded |
+| Groth16 proof | parallelized; accounts for the difference between thread counts |
+
+Set the thread count with `prover: { threads }`, `configureProverThreads(n)` from `@lelantos-org/sdk/prover`, or `threads` on `browserWorkerProver`. See [Benchmarks](/guide/benchmarks) for measured timings.
 
 ## Artifact caching
 
-The 4x6 zkey is ~48 MB. Downloaded artifacts persist to the **Cache API** automatically in any browser that has it — nothing to configure. Because the Cache API is origin-scoped rather than per-realm, this covers both a page reload and the prover worker.
+Downloaded artifacts are stored in the **Cache API** automatically when the browser supports it. The Cache API is shared across the origin, so the cache serves both page reloads and the prover worker.
 
 ::: danger The URL is the cache key
-Serve new proving keys under a **new path**. There is no revalidation request — a round-trip on every load would defeat the point.
+Cached artifacts are not revalidated. Publish new proving keys under a new URL.
 :::
 
 ```ts twoslash
@@ -126,7 +202,7 @@ Serve new proving keys under a **new path**. There is no revalidation request �
 import type { ArtifactCache } from "@lelantos-org/sdk/prover";
 declare const myCache: ArtifactCache;
 // ---cut-end---
-import { requestPersistentStorage } from "@lelantos-org/sdk/core";
+import { requestPersistentStorage } from "@lelantos-org/sdk/advanced";
 import { clearArtifactCache, configureArtifactCache } from "@lelantos-org/sdk/prover";
 
 // Recommended once at startup: WebKit evicts Cache API storage after ~7 days
@@ -139,31 +215,28 @@ configureArtifactCache(false); // opt out entirely
 configureArtifactCache(myCache); // or store them in IndexedDB / OPFS / disk
 ```
 
-A custom cache implements `ArtifactCache` — `get(url)` and `put(url, bytes)`, **neither of which may throw**. A storage failure always degrades to a network fetch, never to a failed proof.
+A custom cache implements `ArtifactCache`: `get(url)` and `put(url, bytes)`. Neither method may throw; on a storage failure the SDK fetches from the network.
 
-::: warning A Web Worker is a separate module realm
-`configureArtifactCache` on the main thread does not reach a `WorkerProver`. The plain opt-out travels over the RPC alongside `threads`; a live `ArtifactCache` object cannot, so install a custom one inside the worker.
-
-<!-- typecheck: skip -->
-```ts
-browserWorkerProver({ worker, paths, cacheArtifacts: false });
-```
+::: warning Configure caching inside the worker
+`configureArtifactCache` on the main thread does not affect a worker prover, which runs in a separate module context. Pass `cacheArtifacts: false` to `browserWorkerProver` to disable caching in the worker. A custom `ArtifactCache` cannot be passed to the worker; install it in the worker's own code.
 :::
 
 ## Persisting state across page loads
 
-A browser wallet that keeps nothing re-downloads the note feed, the Merkle tree, and the spent-nullifier set on every load. Three options fix that, and all three are worth setting together:
+Without persistence, a browser wallet downloads the note feed, the Merkle tree, and the nullifier set on every page load. Configure all three under `storage`:
 
-| Option | Persists |
-|---|---|
-| `noteStore` | decrypted notes and the resume cursor |
-| `treePersistence` | the Merkle tree |
-| `nullifierPersistence` | the spent-nullifier set |
+| Option | Persists | Guide |
+|---|---|---|
+| `storage.notes` | notes and the sync cursor | [Custom storage](/guide/storage) |
+| `storage.tree` | Merkle tree | [Syncing](/guide/sync#persisting-the-tree-and-spent-set) |
+| `storage.nullifiers` | spent-nullifier set | [Syncing](/guide/sync#persisting-the-tree-and-spent-set) |
 
-See [Custom storage](/guide/storage) and [Syncing](/guide/sync#persisting-the-tree-and-spent-set) for implementations.
+## Switching accounts and networks
+
+Call `wallet.dispose()` before replacing a wallet — on disconnect, account switch, or network switch. Workers are live threads and are not released when the wallet goes out of scope. `dispose()` releases only workers the SDK built; a `Prover` or `Scanner` instance you passed stays running until you dispose it (see [Pre-built workers](#pre-built-workers)). For UI bindings, see [Balances and state](/guide/state#react).
 
 ## Next
 
-- [Custom storage](/guide/storage) — surviving a page reload
-- [Logging](/guide/logging) — reading the prover timings
-- [Errors](/guide/errors)
+- [Node usage](/guide/node)
+- [Benchmarks](/guide/benchmarks)
+- [Custom storage](/guide/storage)

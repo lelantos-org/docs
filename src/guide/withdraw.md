@@ -1,141 +1,150 @@
-# Withdraw (unshield)
+# Withdraw
 
-A withdraw spends shielded notes and pays a public EVM address. It is the point at which value becomes visible again, so the recipient address is the one piece of the transaction that is public by design.
+A withdrawal spends shielded notes and pays a public EVM address. The recipient and the gross amount are visible on chain.
 
 ## To an ERC-20 balance
 
 ```ts twoslash
 // ---cut-start---
-import { connect } from "@lelantos-org/sdk";
-const wallet = await connect({
-    privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-    network: "anvil",
-    rpcUrl: "http://localhost:8545",
-});
+import type { WalletApi } from "@lelantos-org/sdk";
+declare const wallet: WalletApi;
 // ---cut-end---
 const tx = await wallet.withdraw({
-    to: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
-    amount: 200n,
-    asset: 1n,
+    asset: "USDC",
+    gross: "1000", // what leaves the pool; or `net: "…"` for what arrives
+    recipient: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
     autoConsolidate: true,
-    onPhase: (p) => console.log(p), // "preparing" | "proving" | "submitting"
+    onPhase: (phase) => console.log(phase), // "preparing" | "consolidating" | "proving" | "submitting" | "confirmed"
 });
+
+tx.onLadder;
+// ^?
 ```
 
-Change splits into new self-notes, decomposed onto the asset's withdrawal ladder where it has one — see [Denominations](/guide/denominations).
+| Option | Description |
+|---|---|
+| `asset` | registry id, token address, or symbol |
+| `gross` **or** `net` | exactly one — see [Gross or net](#gross-or-net) |
+| `recipient` | EVM address receiving the tokens |
+| `native` | unwrap to the native coin — see [To native ETH](#to-native-eth) |
+| `feeAsset`, `selection`, `autoConsolidate`, `deadline`, `signal`, `onPhase`, `opId` | as for [Transfer](/guide/transfer) |
 
-## What the recipient actually receives
+Change is returned as new notes. When the asset has a withdrawal ladder, change is split into ladder denominations — see [Denominations](/guide/denominations#change-lands-on-the-ladder-too).
 
-::: danger `amount` is the gross, not the net
-`WithdrawOptions.amount` is `publicOut` — the amount **leaving the pool**, not the amount the recipient receives.
+## Gross or net
 
-`MASP._unshieldLeg` skims the fee out of what leaves the pool (`net = outAmt - fee`) rather than charging it on top, which makes `publicOut` the figure the chain publishes — and therefore the figure that has to be a round denomination if the withdrawal is to blend with anyone else's. `SwapOptions.amount` means the same thing.
-:::
+The protocol fee is deducted from what leaves the pool. Name the side you mean:
 
-`previewWithdraw` answers what a withdrawal would publish, cost and deliver, without proving or submitting anything. It is pure, so a UI can call it on every keystroke.
+| Field | You name | The SDK computes |
+|---|---|---|
+| `gross` | `publicOut`, the amount published on chain | what the recipient receives: `gross − fee` |
+| `net` | what the recipient receives | the smallest `gross` that delivers at least that |
 
 ```ts twoslash
 // ---cut-start---
-import { connect } from "@lelantos-org/sdk";
-const wallet = await connect({
-    privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-    network: "anvil",
-    rpcUrl: "http://localhost:8545",
-});
+import type { WalletApi } from "@lelantos-org/sdk";
+declare const wallet: WalletApi;
+declare const recipient: `0x${string}`;
 // ---cut-end---
-const p = await wallet.previewWithdraw({ asset: "USDC", amount: "1000" });
+import { formatAmount } from "@lelantos-org/sdk";
+
+// A payment of exactly 250 USDC to an exchange deposit address.
+const r = await wallet.withdraw({ asset: "USDC", net: { baseUnits: 250_000_000n }, recipient });
+
+formatAmount(r.gross.amount, r.asset); // e.g. "250.625" — published on chain
+r.net.baseUnits; // ≥ 250_000_000n, exact
+r.fees.protocol; // Money in USDC, or null at 0 bps
+r.fees.relayer; // Money in the fee asset, or null — never inside gross or net
+```
+
+A `net` withdrawal rarely lands on a denomination, so it publishes a distinctive amount; `r.onLadder` is then `false`. Surface that to the user. See [Denominations](/guide/denominations).
+
+::: danger Relayer fee is separate
+Neither `gross` nor `net` includes the relayer's fee. It is paid from notes, in `feeAsset`, and reported as `fees.relayer`.
+:::
+
+## Previewing
+
+`previewWithdraw` computes what a withdrawal would publish, cost, and deliver. It does no proving or submitting, so it can run on every keystroke.
+
+```ts twoslash
+// ---cut-start---
+import type { WalletApi } from "@lelantos-org/sdk";
+declare const wallet: WalletApi;
+// ---cut-end---
+const p = await wallet.previewWithdraw({ asset: "USDC", gross: "1000" });
 
 p.publicOut; // gross in circuit units — what the chain sees
-p.netFormatted; // "998" — what the recipient gets
+p.netFormatted; // "997.5" — what the recipient gets
 p.onLadder; // whether this gross blends with other users' withdrawals
 p.suggestion; // nearest denomination, when it does not
 //    ^?
 ```
 
-The receipt carries the same split, so nothing has to be recomputed after the fact — doing so needs the asset's `scale`, its rate and the yield index as they were at submission.
+Without a wallet, `withdrawNetFor(publicOut, asset)` and `grossForNet` from `@lelantos-org/sdk/protocol` apply the same arithmetic. Do not reimplement it: yield-bearing and plain assets round at different steps, and the results differ by up to one unit.
 
-```ts twoslash
-// ---cut-start---
-import { connect } from "@lelantos-org/sdk";
-const wallet = await connect({
-    privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-    network: "anvil",
-    rpcUrl: "http://localhost:8545",
-});
-const to = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266" as const;
-// ---cut-end---
-const tx = await wallet.withdraw({ to, amount: 200n, asset: 1n });
+## Reading the result
 
-tx.sent; // gross `publicOut`, circuit units
-tx.received; // ERC-20 base units that reached the recipient
-tx.feePaid; // ERC-20 base units the protocol kept — `received + feePaid` is the gross
-```
-
-Without a wallet in hand, `withdrawNetFor(publicOut, asset)` is the same split off an `AssetInfo`, and `withdrawNet` from `@lelantos-org/sdk/core` the fully manual form. Do not apply the rate yourself: the yield branch charges the fee in normalized units *before* conversion, and the plain branch after, so the wrong one is off by up to a unit.
+| Field | Meaning |
+|---|---|
+| `gross` | `publicOut` (`Money`, `amount` exact) |
+| `net` | delivered to `recipient` (`Money`, `baseUnits` exact) |
+| `fees.protocol`, `fees.relayer` | `Money` or `null` |
+| `onLadder` | whether `gross` is a denomination; `false` makes the withdrawal linkable |
+| `native` | unwrapped to the native coin |
+| `recipient`, `spent`, `change`, `txHash`, `opId` | as for a transfer |
 
 ## To native ETH
 
 ```ts twoslash
 // ---cut-start---
-import { connect } from "@lelantos-org/sdk";
-const wallet = await connect({
-    privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-    network: "anvil",
-    rpcUrl: "http://localhost:8545",
-});
+import type { WalletApi } from "@lelantos-org/sdk";
+declare const wallet: WalletApi;
+declare const recipient: `0x${string}`;
 // ---cut-end---
-await wallet.withdrawEth({
-    to: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
-    amount: 200n,
-    asset: 1n, // must be the registered WETH asset
-});
+if (wallet.capabilities.nativeWithdraw) {
+    await wallet.withdraw({
+        asset: "WETH", // must be the chain's registered wrapped coin
+        gross: "0.5",
+        recipient,
+        native: true,
+        feeAsset: "USDC", // any accepted fee asset works on the native path too
+    });
+}
 ```
 
-Unwraps the WETH-shielded asset to native ETH in a single transaction, through the `NativeAdapter` — the pool itself is ERC-20 only. The asset id must be the chain's registered WETH, and the chain must have an adapter deployed; without one the path raises `DepositAdapterError`.
-
-```ts twoslash
-// ---cut-start---
-import { connect } from "@lelantos-org/sdk";
-const wallet = await connect({
-    privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-    network: "anvil",
-    rpcUrl: "http://localhost:8545",
-});
-// ---cut-end---
-import { supportsNativeEth } from "@lelantos-org/sdk";
-
-// Feature-probe before offering the option in a UI.
-const canUnwrap = supportsNativeEth(wallet.chain);
-```
+`native: true` unshields WETH and unwraps it in the same transaction through the `NativeAdapter` contract. It needs no EOA of your own — the relayer broadcasts it — but it needs a known `NativeAdapter` address. Without one it rejects `UNSUPPORTED_OPERATION` before any fee is quoted.
 
 ## Withdrawing the maximum
 
-`balance()` is not a safe maximum — the selector withholds reserved, dust, and cooling-down notes, and one spend reaches only `nIn` of what remains. Size against `spendableMax()` instead, reserving the relayer fee if one is charged.
+`balance().total` is not the maximum withdrawable amount: notes can be reserved, dust, or recently received, and one spend can use only `nIn` notes. `spendableMax` applies the spend's own rules, and with `kind` it also reserves the relayer fee:
 
 ```ts twoslash
 // ---cut-start---
-import { connect } from "@lelantos-org/sdk";
-const wallet = await connect({
-    privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-    network: "anvil",
-    rpcUrl: "http://localhost:8545",
-});
-const to = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266" as const;
+import type { WalletApi } from "@lelantos-org/sdk";
+declare const wallet: WalletApi;
+declare const recipient: `0x${string}`;
 // ---cut-end---
-import { assetId } from "@lelantos-org/sdk";
+import { circuitAmount } from "@lelantos-org/sdk";
+import { largestAtMost } from "@lelantos-org/sdk/protocol";
 
-const quote = await wallet.quoteFee({ kind: "withdraw" });
-const fee = quote.options.find((o) => o.asset.id === 1n)?.amount ?? 0n;
+const usdc = await wallet.asset("USDC");
+const { max } = await wallet.spendableMax(usdc.id, { kind: "withdraw" });
 
-const { max } = await wallet.spendableMax(assetId(1n), { fee });
-if (max > 0n) await wallet.withdraw({ to, amount: max, asset: 1n });
+// `max` is the largest `gross` one spend can cover, after the fee. Either withdraw it all…
+if (max > 0n) await wallet.withdraw({ asset: usdc.id, gross: max, recipient });
+
+// …or the largest denomination at or below it, which blends in where `max` rarely does.
+const denomination = largestAtMost(max, usdc.ladder);
+if (denomination !== undefined) {
+    await wallet.withdraw({ asset: usdc.id, gross: circuitAmount(denomination), recipient });
+}
 ```
 
-On an asset with a ladder, the maximum is rarely a denomination. Withdrawing it publishes a near-unique integer, so prefer the largest denomination at or below `max` — `nearestDenomination` and `wallet.withdrawDenominations()` both name it.
+Pass the same `feeAsset`, `native`, and `selection` to `spendableMax` that the withdrawal will use. For a denomination picker, use `wallet.withdrawDenominations()`.
 
 ## Next
 
-- [Denominations](/guide/denominations) — why the gross should be a round number
+- [Denominations](/guide/denominations)
 - [Swap](/guide/swap)
-- [Fees](/guide/fees) — protocol fee versus relayer fee
-- [Errors](/guide/errors)
+- [Fees](/guide/fees)

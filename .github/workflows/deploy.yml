@@ -49,6 +49,8 @@ jobs:
       #   check:fences       — every ts snippet is typechecked or explicitly skipped
       # Twoslash compiles each snippet during the build itself, so a stale
       # example fails here rather than shipping.
+      # After the site builds, gen:llms writes llms.txt, llms-full.txt and a
+      # .md twin of every page into dist for language models.
       - run: npm run build
 
       - uses: actions/configure-pages@v5

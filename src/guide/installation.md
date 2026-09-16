@@ -1,32 +1,42 @@
 # Installation
 
-The package is published to **GitHub Packages** with restricted access, so a plain `npm install` will not find it — it resolves against the public npm registry and returns a 404. Installing requires pointing the `@lelantos-org` scope at GitHub Packages and supplying a token with the `read:packages` scope.
+::: tip If you are an agent
+You can find these docs as plain markdown: [llms.txt](https://docs.lelantos.xyz/llms.txt) indexes every page, [llms-full.txt](https://docs.lelantos.xyz/llms-full.txt) is the whole guide in one file, and any page is available by appending `.md` to its URL — for example [/guide/quickstart.md](https://docs.lelantos.xyz/guide/quickstart.md).
+:::
 
-## 1. Add `.npmrc`
+`@lelantos-org/sdk` is published to **GitHub Packages**, not the public npm registry. A plain `npm install` returns a 404. Point the `@lelantos-org` scope at GitHub Packages and provide a token with the `read:packages` scope.
 
-In the consuming repository:
+::: info Upgrading from 0.38
+0.39 is a breaking redesign of the public API. See [Migrating from 0.38](/guide/migration-0.38-to-0.39).
+:::
+
+## 1. Configure the registry
+
+Add an `.npmrc` to the consuming repository:
 
 ```
 @lelantos-org:registry=https://npm.pkg.github.com
 //npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}
 ```
 
-::: tip
-The token is read from the environment, so this file is safe to commit. Never inline the token itself.
-:::
+The token is read from the environment, so the file can be committed. Do not write the token into it.
 
-## 2. Export a token and install
+## 2. Install
 
 ```bash
 export NODE_AUTH_TOKEN=$(gh auth token)   # or a PAT with read:packages
-npm install @lelantos-org/sdk @lelantos-org/circuits
+npm install @lelantos-org/sdk viem @lelantos-org/circuits
 ```
 
-`@lelantos-org/circuits` is an **optional** peer dependency. When present, `connect()` resolves prover artifacts automatically on Node. Browser callers pass `proverArtifacts: { circuit, zkey }` to `connect()` instead — see [Browser usage](/guide/browser).
+| Package | Required | Provides |
+|---|---|---|
+| `viem` | **yes** (peer) | the chain adapter, signers, and key derivation from an EOA |
+| `@lelantos-org/circuits` | no (peer) | prover artifacts, resolved automatically on Node. Browsers pass `prover: { artifacts }` or `prover: { cdn }` instead — see [Browser usage](/guide/browser#prover-artifacts) |
+| `snarkjs`, `circom_runtime` | no (peer) | the JS witness calculator and fallback prover; imported lazily, only when a proof needs them |
 
-## 3. In CI
+## 3. Configure CI
 
-Pass the auto-provisioned `GITHUB_TOKEN`:
+Pass the built-in `GITHUB_TOKEN`:
 
 ```yaml
 - run: npm ci
@@ -34,25 +44,19 @@ Pass the auto-provisioned `GITHUB_TOKEN`:
     NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-## Runtime requirements
+## Requirements
 
-- **Node 24+**, modern browsers, or Deno
-- Web Crypto and `fetch` only — the SDK contains **no `node:*` imports**, enforced in CI
-- ESM only (`"type": "module"`)
+| Requirement | Detail |
+|---|---|
+| Runtime | Node 24+, current browsers, or Deno |
+| Module format | ESM only (`"type": "module"`) |
+| Platform APIs | Web Crypto and `fetch`; no `node:*` imports in browser-reachable code |
+| TypeScript | `"moduleResolution": "nodenext"` or `"bundler"` |
+| Browser CSP | `'wasm-unsafe-eval'` in `script-src` — see [Browser usage](/guide/browser) |
 
-Browsers additionally need `'wasm-unsafe-eval'` in `script-src`; see [Browser usage](/guide/browser).
+The package is exposed through an `exports` map of subpaths. TypeScript's legacy `"node"` resolution cannot read it, and imports such as `@lelantos-org/sdk/advanced` fail to resolve.
 
-## What you get
-
-The package exposes three layers:
-
-- **Wallet API** — `connect()` returns a `Wallet` implementing `WalletApi`, with single-call `deposit` / `transfer` / `withdraw` / `sync` / `balance`. This is the root barrel, and it is all most applications import.
-- **Pluggable interfaces** — `ChainAdapter`, `NoteSource`, `Submitter`, `Prover`, `CoinSelector`, and `NoteStore` can each be replaced independently. See [Pluggable interfaces](/guide/interfaces).
-- **Primitives** — keys, FMD, note encryption, witness builders, and the prover wrapper, on their own subpaths (`/keys`, `/crypto`, `/fmd`, `/notes`, `/bundle`, `/prover`, …) so the root barrel stays small.
-
-Amounts and asset ids are **branded types on the way out and plain `bigint` on the way in**, so `wallet.asset(1n)` and `amount: 100n` need no ceremony while values the SDK returns stay type-distinct. See [Amounts](/guide/amounts).
-
-## Verifying the install
+## Verify the install
 
 ```ts twoslash
 import { VERSION } from "@lelantos-org/sdk";
@@ -60,11 +64,22 @@ import { VERSION } from "@lelantos-org/sdk";
 console.log(VERSION);
 ```
 
-If TypeScript cannot resolve the import, check that your `tsconfig.json` uses `"moduleResolution": "nodenext"` or `"bundler"`. The package publishes an exports map with 30 subpaths, and the legacy `"node"` resolution mode cannot read it.
+## Package layout
 
-## Stability
+Most applications import only from the root. Every exported name has exactly one home; see [Package subpaths](/guide/subpaths) for the full map.
 
-Pre-1.0. The API may change between minor versions without a semver major. Pin an exact version if you need reproducible builds.
+| Entry point | Use it for |
+|---|---|
+| `@lelantos-org/sdk` | `connect()`, the `WalletApi` it returns, amounts, network presets, and every error class |
+| `@lelantos-org/sdk/watch` | `connectWatch()` for viewing-key wallets |
+| `@lelantos-org/sdk/advanced`, `/prover`, `/services` | replacing the chain adapter, prover, relayer submitter, stores, or selector |
+| `@lelantos-org/sdk/protocol`, `/primitives` | fee arithmetic, keys, notes and bundle builders without a wallet |
+
+Amounts are branded (`CircuitAmount`, `TokenAmount`); a plain `bigint` amount does not compile. See [Amounts and assets](/guide/amounts).
+
+## Versioning
+
+The SDK is pre-1.0: minor versions may contain breaking changes. Pin an exact version for reproducible builds, and check the [release notes](https://github.com/lelantos-org/sdk/releases) before upgrading.
 
 ## Next
 

@@ -1,32 +1,32 @@
 # Custom storage
 
-The wallet keeps three pieces of state, and each persists separately:
+The wallet persists three kinds of state, each through its own interface:
 
-| State | Interface | Configured with |
+| State | Interface | `connect` option |
 |---|---|---|
-| decrypted notes | `NoteStore` | `noteStore` |
-| Merkle tree | `TreePersistence` | `treePersistence` |
-| spent-nullifier set | `NullifierPersistence` | `nullifierPersistence` |
+| decrypted notes and sync cursor | `NoteStore` | `storage.notes` |
+| Merkle tree | `TreePersistence` | `storage.tree` |
+| spent-nullifier set | `NullifierPersistence` | `storage.nullifiers` |
 
-All three default to memory. That is fine for a script and useless across page loads — a fresh wallet re-downloads and re-scans the entire note feed every time.
+All three default to memory. A wallet without persistent storage re-downloads and re-scans the note feed on every start. The interfaces are in `@lelantos-org/sdk/advanced`.
 
-This page covers the note store. For the other two, see [Syncing](/guide/sync#persisting-the-tree-and-spent-set).
+This page covers `NoteStore`. For the tree and nullifier set, see [Persisting the tree and spent set](/guide/sync#persisting-the-tree-and-spent-set).
 
 ## Implementing `NoteStore`
 
-Two methods. `load()` returns the whole file; `save()` replaces it.
+`NoteStore` has two methods: `load()` returns the full notes file, and `save()` replaces it.
 
 ```ts twoslash
 // ---cut-start---
-declare function idbGet(k: string): Promise<unknown>;
+declare function idbGet(k: string): Promise<string | undefined>;
 declare function idbSet(k: string, v: string): Promise<void>;
 // ---cut-end---
-import type { NoteStore, NotesFile } from "@lelantos-org/sdk";
+import type { NoteStore, NotesFile } from "@lelantos-org/sdk/advanced";
 
-class IndexedDbNoteStore implements NoteStore {
+export class IndexedDbNoteStore implements NoteStore {
     async load(): Promise<NotesFile> {
-        const json = ((await idbGet("lelantos-notes")) as string | undefined) ?? '{"version":3,"notes":[]}';
-        return JSON.parse(json);
+        const json = (await idbGet("lelantos-notes")) ?? '{"version":1,"notes":[]}';
+        return JSON.parse(json) as NotesFile;
     }
 
     async save(file: NotesFile): Promise<void> {
@@ -35,53 +35,61 @@ class IndexedDbNoteStore implements NoteStore {
 }
 ```
 
-::: danger Round-trip `cursor`
-`NotesFile.cursor` is the resume point for the note feed. A store that drops it — by rebuilding the object, or persisting only `notes` — turns every subsequent sync back into a full re-scan from zero, silently and with no error. The example above preserves it because it serialises the whole file.
+`StoredNote` encodes `bigint` fields as decimal strings, so `NotesFile` serializes with plain `JSON.stringify`.
+
+::: danger Persist `cursor`
+`NotesFile.cursor` is the sync resume position. A store that drops it — for example by saving only `notes` — causes every sync to re-scan from the beginning, with no error. Save the whole object passed to `save()`.
 :::
 
-## The file version
-
-The current schema is version 3, which widened `StoredNote.id` from 4 to 16 random bytes. Ids are wallet-local and opaque, but they *are* identities: one keys the nullifier memo, the spent set passed to `markSpent`, and selection's `only` filter, so a collision retires an unrelated note and withholds it from the selector until the next rescan. At 4 bytes that was a birthday problem a real wallet reaches — roughly 1% at 10k notes, which denomination decomposition and per-spend change notes get to.
-
-Migration is automatic: the wallet renumbers a v1 or v2 file on load, logs it on `lelantos:wallet:notes`, and immediately `save()`s the result back through your store. Nothing to call — but a store that silently drops writes, or that reconstructs the object without `version`, makes the renumbering happen again on every load.
-
-`StoredNote` encodes its bigints as decimal strings precisely so the file is plain JSON — no replacer or reviver is needed, and no `bigint` will reach `JSON.stringify` and throw.
-
-Pass it when constructing the wallet:
+Pass the store when connecting:
 
 ```ts twoslash
 // ---cut-start---
-import { Wallet, type NoteStore, type WalletConfig, type KeySource } from "@lelantos-org/sdk";
-declare const keySource: KeySource;
-declare const config: WalletConfig;
+import type { NoteStore } from "@lelantos-org/sdk/advanced";
 declare const IndexedDbNoteStore: new () => NoteStore;
+declare const privateKey: `0x${string}`;
+declare const rpcUrl: string;
 // ---cut-end---
-const wallet = await Wallet.create(keySource, { ...config, noteStore: new IndexedDbNoteStore() });
+import { connect } from "@lelantos-org/sdk";
+
+const wallet = await connect({
+    network: "base",
+    rpcUrl,
+    privateKey,
+    storage: { notes: new IndexedDbNoteStore() },
+});
 ```
 
-The CLI's `FileNoteStore` is a working Node-side reference implementation.
+`createWallet` takes the same store as `noteStore`, and `connectWatch` as `storage.notes`. `InMemoryNoteStore` is the default implementation.
 
-## What the file does and does not contain
+## Implementation requirements
 
-The notes file holds the commitments this wallet owns, their values, and the resume cursor. It does **not** hold `nsk`, and it does not hold nullifiers — those are derived in memory on each run and deliberately never written.
+| Requirement | Reason |
+|---|---|
+| Save the entire `NotesFile`, including `cursor` and `version` | a missing `cursor` forces a full re-scan; a missing `version` makes the wallet refuse to open |
+| Make `save()` atomic (write to a temporary key, then rename; or use a transactional store) | a partially written file that fails to parse forces a full re-scan |
+| Call `wallet.sync({ reload: true })` after modifying the store outside the SDK, such as from another tab | the wallet does not detect external changes |
+| Encrypt the stored file | see [Contents](#contents) |
 
-::: danger The file is sensitive even without keys
-It links its holder to every on-chain commitment this wallet owns. What it withholds is the other half — nullifiers are the on-chain spend identifiers, so writing them would additionally link the holder to every spend. Encrypt the file at rest; a leaked file is a full transaction-graph disclosure for its owner, even though it cannot move funds.
+The SDK serializes its own reads and writes to the store, so `save()` is never called concurrently by one wallet.
+
+## Schema version
+
+The current `NotesFile` version is 1, which uses 16-byte note ids. The SDK does not upgrade files: opening a wallet whose store holds another version rejects `WALLET_CONFIG`. Clear the store (or have `load()` return an empty version-1 file) and the next sync re-scans the feed.
+
+## Contents
+
+The notes file contains the commitments the wallet owns, their values, and the sync cursor. It does **not** contain `nsk` or nullifiers; nullifiers are computed in memory and never written.
+
+::: danger The notes file is sensitive
+The file cannot be used to spend, but it links its holder to every commitment the wallet owns on chain. Encrypt it at rest.
 :::
 
-## Writes are serialised for you
+## Reducing file size
 
-`sync()`, `compact()`, `refresh()`, and every spend all read a snapshot and then await a store write. `NoteCache` serialises them internally, so two overlapping operations cannot interleave and lose one another's changes.
-
-Your `save()` therefore never runs concurrently with itself. It does need to be **atomic against a crash**: a half-written file that fails to parse on the next `load()` costs a full rescan. Write to a temporary key and rename, or use a transactional store.
-
-If something outside the SDK mutates the store, call `wallet.refresh()` to re-read it — the in-memory snapshot is not invalidated on its own.
-
-## Keeping the file small
-
-`wallet.compact()` drops notes already flagged spent and returns how many it removed. Balances are unaffected: it only shrinks what is on disk, and live notes and reconcile state are preserved.
+`wallet.compact()` removes notes already marked spent and returns the number removed. Balances are unchanged.
 
 ## Next
 
-- [Syncing](/guide/sync) — persisting the tree and the spent set
+- [Syncing](/guide/sync)
 - [Pluggable interfaces](/guide/interfaces)

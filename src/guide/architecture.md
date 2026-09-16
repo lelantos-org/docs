@@ -1,38 +1,32 @@
 # Architecture
 
-The SDK is organised as a strict tier ladder: a module may import only from a **lower** tier, never a higher or equal one. This is enforced in CI by `scripts/check-layers.mjs` rather than merely documented, which is what makes the subpath imports below a real guarantee instead of a convention.
+The SDK is organized in tiers. A module may import only from lower tiers. `scripts/check-layers.mjs` enforces this in CI.
 
 | Tier | Modules | Role |
 |---|---|---|
-| 0 | `core`, `log`, `worker`, `wasm`, `types-ambient` | primitives with no SDK dependencies |
+| 0 | `core`, `errors`, `log`, `runtime` | primitives, the error taxonomy, logging, worker RPC and wasm loading; no protocol knowledge |
 | 1 | `crypto` | field arithmetic, Poseidon, Jubjub |
 | 2 | `fmd`, `keys`, `notes` | key derivation, detection, note encryption |
-| 3 | `protocol`, `circuit` | wire contracts and circuit shapes |
-| 4 | `permit2`, `chain`, `prover`, `services` | outside world — chains, provers, HTTP |
-| 5 | `bundle`, `sync` | transaction assembly, note synchronisation |
-| 6 | `wallet` | the `WalletApi` surface |
-| 7 | `presets`, `x402` | opinionated entry points |
+| 3 | `protocol`, `circuit` | wire formats, fee and denomination policy, circuit shapes and witness |
+| 4 | `permit2`, `chain`, `prover`, `services` | the chain port and viem adapter, provers, HTTP clients |
+| 5 | `bundle`, `sync` | transaction assembly, note synchronization, tree and nullifier mirrors |
+| 6 | `wallet` | `connect`, the `WalletApi` object, operations |
+| 7 | `x402`, `entry` | x402 payments, and the published subpath barrels |
 
-## The three enforced rules
+## Enforced rules
 
-1. **No importing from a higher tier.** The ladder is acyclic by construction, which is what lets a browser bundler drop `services` when an app only uses primitives.
-2. **No `export *` anywhere.** Every re-export is named. This is why `api-surface.json` can be a meaningful snapshot: a symbol is public *if and only if* a barrel forwards it by name.
-3. **No leaf module below tier 3 may import a domain barrel.** Low-level code imports the specific file it needs, so pulling in `crypto` does not drag a barrel's whole transitive closure with it.
+1. **Imports go downward only.** A module imports from its own tier or below, never above, so the dependency graph has no cycles.
+2. **No `export *`.** Every re-export is named. A symbol is public if and only if an `entry/*` barrel forwards it by name, and no name is published from two subpaths.
+3. **Errors are leaves.** `errors/` imports only `core/`, so every tier can throw typed errors.
+4. **Operations stay independent.** An operation in `wallet/ops/` never imports another, and the watch-only wallet never reaches the spend path.
 
-## Why this shows up in the API
+## Implications for consumers
 
-Two consequences you will notice as a consumer:
-
-- **Subpath imports are meaningful.** `@lelantos-org/sdk/crypto` really is tier 1 and pulls in nothing above it. The 30 subpaths in the exports map are not cosmetic packaging.
-- **Branded types live in tier 0.** `AssetId`, `CircuitAmount`, and `Hex32` are declared in `core` precisely so every tier above can speak them without a cycle. See [Amounts](/guide/amounts).
-
-## Why this matters for bundle size
-
-The ladder being acyclic is what lets a bundler drop whole tiers. An application that imports only `@lelantos-org/sdk/crypto` pulls in tier 0 and tier 1 and nothing else — no HTTP clients, no chain adapter, no prover. Importing the root barrel pulls in everything.
-
-If bundle size matters, import from the narrowest subpath that has what you need.
+- **The root entry loads lazily.** `connect` and the wallet object are in the root, but the spend path, the prover, and the deposit family load on first use, so a balance-only page does not bundle them. `@lelantos-org/sdk/watch` reaches neither the prover nor the submitter at all. Bundle budgets for each entry are enforced in CI.
+- **Branded types are defined in tier 0.** `AssetId`, `CircuitAmount`, and `Hex32` are declared in `core`, so every tier can use them. See [Amounts and assets](/guide/amounts#branded-types).
+- **Subpaths are homes, not layers.** Each exported name has one subpath; see [Package subpaths](/guide/subpaths).
 
 ## Next
 
-- [Pluggable interfaces](/guide/interfaces) — where the ladder is meant to be cut
-- [API Reference](/reference/)
+- [Pluggable interfaces](/guide/interfaces)
+- [API reference](/reference/)

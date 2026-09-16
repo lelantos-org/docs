@@ -1,49 +1,53 @@
 # Concepts
 
-Enough of the model to read the rest of these docs. Using the SDK does not require the cryptography, but it does require these four ideas — each of them explains an API that would otherwise look arbitrary.
+The SDK hides the cryptography, but four concepts determine how its API behaves.
 
 ## Notes
 
-The pool does not track balances. It tracks **notes** — individual commitments, each holding an asset and a value, each owned by one address.
+The pool does not store balances. It stores **notes**: commitments that each hold one asset, one value, and one owner.
 
-Your balance is the sum of your unspent notes. This is why [note selection](/guide/notes) exists at all: spending 100 means finding notes that cover 100, not decrementing a number.
-
-A transaction consumes up to four notes and creates new ones. Change comes back to you as a fresh note.
-
-Two consequences show up immediately in the API. A balance spread across more notes than one transaction can consume is not fully spendable in one go — which is why [`spendableMax()`](/guide/notes) exists and `balance()` is not a safe maximum. And a spend that finds no covering set fails with `InsufficientCoverError` rather than sending less.
+- A balance is the sum of unspent notes.
+- A spend consumes up to four notes and creates new ones. Change returns as a new note.
+- A balance spread across more than four notes cannot be spent in one transaction. `balance()` is therefore not the maximum spendable amount; use [`spendableMax()`](/guide/notes#what-a-single-spend-can-reach).
+- When no set of notes fits the input slots, a spend throws `INSUFFICIENT_COVER` instead of sending less.
 
 ## Nullifiers
 
-Spending a note publishes a **nullifier** — a value derived from the note that reveals nothing about which note it was, but which the pool can check for uniqueness.
+Spending a note publishes its **nullifier**, a value derived from the note. The pool rejects a nullifier it has already seen, which prevents double spends. A nullifier does not reveal which note it belongs to.
 
-That is what prevents double-spending without revealing the spend graph. It is also why the wallet mirrors the whole nullifier set locally: asking a server *"is nullifier N spent?"* would identify a note you own.
+The wallet downloads the full nullifier set and checks it locally. Querying a server for a specific nullifier would reveal a note the wallet owns.
 
 ## The Merkle tree
 
-Every note commitment goes into an append-only Merkle tree. To spend a note you prove, in zero knowledge, that it is *somewhere* in that tree — without saying where.
+Every note commitment is appended to a Merkle tree. A spend proves in zero knowledge that its input notes are in the tree, without revealing their positions.
 
-The proof is against a specific tree root, so **the wallet must have a current tree before it can spend**. That is what `syncTree()` is for, and why a freshly deposited note is not immediately spendable: the relayer has to fold it in first. See [Deposit](/guide/deposit).
+The proof is built against a specific tree root, so the wallet needs a current copy of the tree before it spends. This is why `sync()` defaults to `scope: "full"` on a spending wallet, and why a new deposit is not spendable until the relayer has added it to the tree. See [Deposit](/guide/deposit#the-deposit-lifecycle).
 
-## Fuzzy message detection (FMD)
+## Note detection (FMD)
 
-A note is encrypted to its recipient. Nothing on chain says who that is — so how does a wallet find its own notes?
+Notes are encrypted to their recipient, and nothing on chain identifies the recipient. A wallet finds its notes in one of two ways:
 
-The default answer is brute force: download every encrypted note and trial-decrypt each one. Maximum privacy, maximum bandwidth. That is the `full` sync strategy.
+| Strategy | How it works | Trade-off |
+|---|---|---|
+| `full` (default) | download every encrypted note and trial-decrypt locally | no information leaves the wallet; highest bandwidth |
+| `matches` | register a detection key with the FMD server, which returns probable matches plus false positives | lower bandwidth; the server can detect the wallet's incoming notes |
 
-**FMD** is the alternative. Each note carries a *clue*, and a detection key can test a clue for a probabilistic match — returning your notes plus a tunable rate of false positives. Handing that key to a server means downloading far less.
-
-::: danger Delegating detection is permanent
-The detection scalars let the server recover your root FMD secret. It can detect your incoming notes forever, and rotating the subscription token does not revoke it. This is why `full` is the default. See [Syncing](/guide/sync).
+::: danger Delegating detection cannot be revoked
+The detection key registered for `matches` lets the server recover the wallet's root FMD secret. The server can detect incoming notes permanently; rotating the subscription token does not revoke this. See [Sync strategies](/guide/sync#sync-strategies).
 :::
 
-## Putting it together
+## How a transfer uses them
 
-A transfer therefore means: pick notes that cover the amount, prove they are in the tree, publish their nullifiers, create new commitments for payee and change, and attach clues so the payee can find theirs.
+1. Select notes that cover the amount.
+2. Prove the notes are in the tree.
+3. Publish their nullifiers.
+4. Create commitments for the payee, the change, and the relayer fee.
+5. Attach FMD clues so recipients can detect their notes.
 
-The [Wallet API](/guide/wallet) does all of that in one call. The rest of this guide is mostly about the seams — what to do when a step fails, and where to substitute your own implementation.
+`wallet.transfer()` performs all five steps. The rest of this guide covers configuration, failure handling, and replacing individual components.
 
 ## Next
 
-- [Quickstart](/guide/quickstart)
-- [Syncing](/guide/sync) — the tree and the spent set in practice
-- [Architecture](/guide/architecture) — how the code is layered
+- [How it fits together](/guide/system) — the contracts and services the SDK talks to
+- [Glossary](/guide/glossary) — definitions of keys, units, and protocol terms
+- [Syncing](/guide/sync)

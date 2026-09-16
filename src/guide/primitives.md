@@ -1,59 +1,83 @@
-# Low-level primitives
+# Building transactions manually
 
-Most applications never come here — the [Wallet API](/guide/wallet) covers the normal paths, including everything on this page. Read it when you are assembling a transaction shape the wallet does not expose, and need to reproduce what it does internally.
+The [wallet API](/guide/wallet) covers every operation on this page. Use these primitives, from `@lelantos-org/sdk/protocol`, `@lelantos-org/sdk/primitives`, and `@lelantos-org/sdk/services`, only to build a transaction shape the wallet does not provide.
 
-## Paying a relayer's shielded fee
+## Relayer fee output
 
-A relayer may charge for relaying, and charges **privately**: the fee is an output note addressed to the relayer, built into the spend it pays for. There is no on-chain transfer, and so nothing linking the payer to the transaction.
+A relayer fee is a shielded output note addressed to the relayer, included in the transaction it pays for.
 
-`GET /chains` says whether a relayer charges. **The presence of `shieldedFee` is the contract** — where it appears, every spend and swap on that chain must carry a fee output, and one that does not is refused `402`.
+The relayer's `GET /chains` response indicates whether it charges. **If `shieldedFee` is present**, every spend and swap on that chain must include a fee output; submissions without one are rejected with `402`.
 
-<!-- typecheck: skip -->
-```ts
-import { RelayerClient } from "@lelantos-org/sdk/relayer";
-import { feeOutputFromEstimate } from "@lelantos-org/sdk/bundle";
+```ts twoslash
+// ---cut-start---
+declare const asset: bigint;
+// ---cut-end---
+import { cryptoContext } from "@lelantos-org/sdk/primitives";
+import { feeOutputFromEstimate } from "@lelantos-org/sdk/protocol";
+import { RelayerClient } from "@lelantos-org/sdk/services";
 
-const relayer = new RelayerClient(relayerUrl);
-const estimate = await relayer.estimateSpend(chainId, "transfer");
+const { J } = await cryptoContext();
+const relayer = new RelayerClient("https://relayer.lelantos.xyz");
+const estimate = await relayer.estimateSpend(8453n, "transfer");
 
-// null when this relayer charges nothing; throws when it charges but cannot
-// take `asset` — that spend cannot be relayed at all.
+// null when this relayer charges nothing; throws FEE_ASSET_NOT_QUOTED when it
+// charges but cannot take `asset` — that spend cannot be relayed at all.
 const fee = feeOutputFromEstimate({ J, estimate, asset });
+//    ^?
 ```
 
-## Why the fee slot is shuffled
+### Deposit fee note
 
-`fee` is one slot's `{ note, recipient, randomness }`, spliced into the three parallel arrays `buildSpend` takes. They are positional, so its entry has to land at the **same index in all three** — but deliberately not at a *fixed* index.
+A deposit has no proof and no output slots. Its fee is a second leaf next to the depositor's note, built by `buildDeposit` from its `fee` argument. The pool and the flush circuit enforce these rules:
 
-A fee note always sitting in the last slot would be a free label on every relayed transaction.
+| Rule | Detail |
+|---|---|
+| Asset | `fee.asset`, defaulting to the deposit asset. The note, its commitment, and `feeCvDep` use that asset, and the request sets `feeAssetId` to it. A different asset must be non-yield-bearing and accepted by the relayer. |
+| Zero-value fee | a zero-value note in the deposit asset, with `feeAssetId = 0`. The circuit forces a zero-value leaf's asset to 0; the pool reverts with `FeeAssetMustBeZero` otherwise. |
+| Permit | determined by `isSameFeeAsset(feeIn, feeAssetId, publicAssetId)`. If true, sign a single-token `PermitWitnessTransferFrom` with `maxFee = 0`. If false, pass `feeToken` and `maxFee` to `signPermit2Witness`, which signs a `PermitBatchWitnessTransferFrom` over `[deposit token, fee token]` in that order. |
 
-<!-- typecheck: skip -->
-```ts
-const feeValue = fee ? fee.note.value : 0n;
-const changeValue = selection.sum - sendValue - feeValue;
-const change = splitChange(ownPk, asset, changeValue, shape.nOut - (fee ? 2 : 1));
+`isSameFeeAsset` compares asset ids, not token addresses: a plain asset and a yield asset can share one ERC-20 and still require two transfers.
+
+`depositTotals` computes the two amounts, `{ principal, relayer }`. See [Computing pulls without a wallet](/guide/fees#computing-pulls-without-a-wallet).
+
+## Output slot order
+
+`buildSpend` takes three parallel arrays — notes, recipients, and randomness. The fee output must be at the same index in all three, and that index must be random: a fee note always in the last slot would identify relayed transactions.
+
+Build one object per slot, shuffle the list once, then split it into the three arrays:
+
+```ts twoslash
+// ---cut-start---
+import type { FeeOutput, OutputRandomness, OutputRecipient } from "@lelantos-org/sdk/protocol";
+import type { Note } from "@lelantos-org/sdk/primitives";
+declare const fee: FeeOutput | null;
+declare const sendNote: Note;
+declare const change: Note[];
+declare const payee: OutputRecipient;
+declare const own: OutputRecipient;
+declare const perOutput: OutputRandomness[];
+// ---cut-end---
+import { shuffled } from "@lelantos-org/sdk/primitives";
+
+type Slot = { note: Note; recipient: OutputRecipient; randomness: OutputRandomness };
 
 // One object per slot, shuffled once, then unzipped — so the three arrays
 // cannot disagree about where the fee went.
-const slots = shuffled([
-    { note: sendNote, recipient: to, randomness: perOutput[0] },
-    ...change.map((note, i) => ({ note, recipient: own, randomness: perOutput[i + 1] })),
+const slots: Slot[] = shuffled([
+    { note: sendNote, recipient: payee, randomness: perOutput[0]! },
+    ...change.map((note, i) => ({ note, recipient: own, randomness: perOutput[i + 1]! })),
     ...(fee ? [fee] : []),
 ]);
+
+const notes = slots.map((s) => s.note);
+const recipients = slots.map((s) => s.recipient);
+const randomness = slots.map((s) => s.randomness);
 ```
 
-`shuffled` is exported from `@lelantos-org/sdk/core`. The wallet paths use `finalizeSlots`, which wraps this and derives `ownIndices` from the same permutation — so the wallet always knows which outputs are its own without re-scanning.
-
-::: tip Let the wallet do it
-`wallet.transfer()` and `wallet.swap()` already handle fee estimation, slot shuffling, and index tracking. Reach for these primitives only when you are building a transaction shape the Wallet API does not expose.
-:::
-
-## Knowing the fee before you build
-
-`wallet.quoteFee()` prices a prospective operation without building it, and reports which assets this wallet could pay in — so a UI can show a total before the user commits. See [Fees](/guide/fees) for the worked example.
+The wallet does the same internally, and also records the positions of its own outputs from the same permutation, which is how results report `ownCommitments`.
 
 ## Next
 
-- [Fees](/guide/fees) — quoting, and cross-asset fees
-- [Errors](/guide/errors) — `isShieldedFeeRejection`
-- [API Reference](/reference/)
+- [Fees](/guide/fees)
+- [Errors](/guide/errors)
+- [API reference](/reference/)

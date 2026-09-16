@@ -1,100 +1,72 @@
 # Fees
 
-Three separate costs can apply to one operation, and they are charged by three different parties. Conflating them is a common source of "the numbers do not add up" bugs.
+An operation can incur three separate costs, each charged by a different party.
 
-| Fee | Charged by | Paid in | Visible on chain |
+| Fee | Charged by | Paid in | Public |
 |---|---|---|---|
 | **Gas** | the network | native ETH | yes |
-| **Protocol fee** | the MASP contract | the asset being moved — added to a shield, skimmed from an unshield | yes |
-| **Shielded relayer fee** | the relayer | any asset it quotes, as an output note | no |
+| **Protocol fee** | the MASP contract | the moved asset: added to a deposit, deducted from a withdrawal | yes |
+| **Relayer fee** | the relayer | any asset the relayer accepts, as a shielded note (for a deposit, a second leaf) | no |
 
-Gas is only your concern on the paths your own signer broadcasts — a deposit, or a withdraw you submit directly. On relayed spends the relayer pays gas and recovers it through the shielded fee.
+You pay gas only for transactions your own account broadcasts: deposits, cancellations, and allowance setup. For relayed transactions the relayer pays gas and recovers it through the relayer fee.
 
-## The protocol fee
+Every result and quote reports the last two as `fees: { protocol, relayer }`, each a `Money` or `null` when not charged.
 
-Rates are **per asset and per leg**. There is no pool-wide rate, so nothing fetches one: both numbers are resolved with the asset and ride on `AssetInfo`.
+## Protocol fee
 
-| Rate | Charged on | How |
+Rates are set **per asset and per direction** and are returned on `AssetInfo`. There is no pool-wide rate.
+
+| Rate | Applies to | Calculation |
 |---|---|---|
-| `depositBps` | a shield — `deposit`, and a swap's re-shield leg | **added on top of** the principal |
-| `withdrawBps` | an unshield — `withdraw`, and a swap's first leg | **skimmed from** the gross leaving the pool |
-
-A pool can price the two apart — subsidising deposits to fill itself while still charging on exits — so passing one where the other belongs is a real misquote, not a rounding difference.
+| `depositBps` | `deposit`, and the re-shield leg of a swap | **added to** the principal |
+| `withdrawBps` | `withdraw`, and the unshield leg of a swap | **deducted from** the gross amount |
 
 ```ts twoslash
 // ---cut-start---
-import { connect } from "@lelantos-org/sdk";
-const wallet = await connect({
-    privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-    network: "anvil",
-    rpcUrl: "http://localhost:8545",
-});
+import type { WalletApi } from "@lelantos-org/sdk";
+declare const wallet: WalletApi;
 // ---cut-end---
-import { withdrawNetFor } from "@lelantos-org/sdk";
+import { parseAmount } from "@lelantos-org/sdk";
+import { withdrawNetFor } from "@lelantos-org/sdk/protocol";
 
 const usdc = await wallet.asset("USDC");
 usdc.depositBps; // shield rate, in basis points
 usdc.withdrawBps; // unshield rate
 
-// What a 1000-unit gross withdrawal actually delivers, in ERC-20 base units.
-const { net, fee } = withdrawNetFor(1000n, usdc);
+// What a 1000 USDC gross withdrawal delivers, in ERC-20 base units.
+const { net, fee } = withdrawNetFor(parseAmount("1000", usdc), usdc);
 //      ^?
 ```
 
-`withdrawNetFor` reads `withdrawBps`, `scale`, `index` and `yieldEnabled` off the asset, which is why it takes the asset rather than a rate: the yield branch rounds at a different point and misreports the net by up to a unit if `yieldEnabled` is assembled by hand and left out.
+`withdrawNetFor` takes the whole asset because it needs `withdrawBps`, `scale`, `index`, and `yieldEnabled`. A withdrawal names either side of this fee with `gross` or `net`; see [Gross or net](/guide/withdraw#gross-or-net).
 
-### The shield leg, when the asset yields
+### Deposits of yield-bearing assets
 
-`withdrawNetFor` has a deposit-side counterpart, and it does not merely round differently — it can refuse. A shield is charged **on top of** the principal, and on a yield asset the whole total is converted once through the pool's `rate` rather than through `index`, which keeps the escrow digest stable and index-free.
+For a yield-bearing asset, the deposit total is converted to token units once using the pool's `rate`, not `index`.
 
-Two things follow for anyone building a deposit.
+- **An asset without `rate` cannot be deposited.** The SDK raises `INVALID_ARGUMENT`. `scale` is not used as a fallback because it underestimates what the pool pulls.
+- **The signed amount is a ceiling, not the quote.** The pool's rate increases every block, so the SDK signs the exact pull plus a small headroom: `quoteDeposit().pulls[].ceiling`. Permit2 transfers only what the pool requests (`pulls[].amount`), and `NativeAdapter` refunds unused ETH. Plain assets sign the exact pull.
 
-**A yielding asset with no `rate` cannot be quoted.** The SDK raises `InvalidArgumentError` rather than falling back to `scale`, because `scale` under-quotes by exactly what the venue has earned — which is the amount that makes the Permit2 pull revert. See [Chain adapters](/guide/chain-adapter) for the adapter's side of this.
+Re-quote before submitting if the user takes time to confirm.
 
-**What you sign is a ceiling, not the quote.** A yield asset's cost is `units * gross / supply`, and `gross` grows with the venue every block, so a figure signed at exactly the quote is stale the moment it is signed. The SDK adds 50 bps of headroom (`DEPOSIT_INDEX_HEADROOM_BPS`) — about a thousand times the drift 5% APY produces over the default Permit2 deadline, while still bounding what a misbehaving pool could pull. Overshooting is free: Permit2 transfers only what the pool asks for, an allowance is a cap, and `NativeAdapter` refunds the unused part of `msg.value`. Undershooting reverts the deposit. Plain assets add no headroom, their cost being exact.
+### Overriding rates
 
-This is why a deposit quote should be re-read rather than cached across a slow confirmation step.
+`feeBps` on `createWallet`'s `WalletConfig` replaces the rates the pool reports for every asset. It is not a `connect()` option: against a live pool it produces wrong quotes as soon as the owner changes a rate. Use it only when the real rates are unavailable, such as on a fork, in tests, or before the registry is deployed.
 
-::: warning A withdrawal's `amount` is the gross
-`MASP._unshieldLeg` sends `outAmt - fee` to the recipient and keeps `fee`, so `WithdrawOptions.amount` is what leaves the pool, not what arrives. `wallet.previewWithdraw` shows both figures — see [Withdraw](/guide/withdraw#what-the-recipient-actually-receives).
-:::
+## Relayer fee
 
-### Overriding the rates
+A relayer can charge for relaying. The fee is a shielded output note addressed to the relayer, created inside the transaction it pays for, so no public transfer links the payer to the transaction.
 
-`feeBps` on `connect()` and `WalletConfig` replaces what the pool reports, for every asset. A bare `bigint` sets both legs; the pair prices them apart.
-
-```ts twoslash
-// ---cut-start---
-import { connect } from "@lelantos-org/sdk";
-// ---cut-end---
-await connect({
-    privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-    network: "anvil",
-    rpcUrl: "http://localhost:8545",
-    feeBps: { depositBps: 0n, withdrawBps: 25n },
-});
-```
-
-It is applied when an `AssetInfo` is resolved, so deposit, withdraw, swap and `previewWithdraw` all see the same numbers and cannot drift apart. Reach for it only where the SDK cannot read the real rates — a fork, a fixture, a registry that is not deployed yet. Against a live pool it misquotes the moment the owner changes a rate.
-
-## The shielded relayer fee
-
-A relayer may charge for relaying, and it charges privately: the fee is an output note addressed to the relayer, built into the spend it pays for. Nothing on chain links the payer to the transaction.
-
-`quoteFee()` prices an operation before you build it, and reports which assets this wallet could actually pay in.
+`quoteFee(kind)` returns the fee before the transaction is built, and which assets the wallet can pay it in:
 
 ```ts twoslash
 // ---cut-start---
-import { connect } from "@lelantos-org/sdk";
-const wallet = await connect({
-    privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-    network: "anvil",
-    rpcUrl: "http://localhost:8545",
-});
+import type { WalletApi } from "@lelantos-org/sdk";
+declare const wallet: WalletApi;
 // ---cut-end---
 import { formatAmount } from "@lelantos-org/sdk";
 
-const quote = await wallet.quoteFee({ kind: "transfer" });
+const quote = await wallet.quoteFee("transfer");
 
 if (!quote.charged) {
     console.log("this relayer relays transfers for free");
@@ -109,60 +81,145 @@ if (!quote.charged) {
 }
 ```
 
-`kind` is `"transfer"`, `"withdraw"`, `"withdrawNative"`, `"swap"`, or `"deposit"`. Swaps and deposits are quoted on their own endpoints: a swap's gas covers two legs plus the on-chain swap, and a deposit is priced against the relayer's later `flushBatch` rather than at submit time.
+| `kind` | Estimate |
+|---|---|
+| `"transfer"` | spend estimate |
+| `"withdraw"` | spend estimate; `{ native: true }` prices the unwrap path |
+| `"swap"` | swap estimate; gas covers both legs and the trade |
+| `"deposit"` | the relayer's later `flushBatch`; `balance` and `affordable` are `undefined`, because a deposit's fee is funded from the public wallet |
 
-::: warning `affordable` is necessary, not sufficient
-It compares the fee against the unspent balance in that asset. The notes still have to fit the circuit's input slots, which only coin selection can decide — so an affordable option can still fail with `InsufficientCoverError`.
+| `FeeOption` field | Meaning |
+|---|---|
+| `asset` | an accepted asset, resolved in the registry |
+| `amount`, `baseUnits` | the fee note's value in circuit units (exact) and base units |
+| `balance` | this wallet's unspent shielded balance of the asset |
+| `affordable` | `balance >= amount` |
+
+::: warning `affordable` does not guarantee the spend succeeds
+`affordable` compares the fee with the unspent balance of that asset. The notes must also fit the circuit's input slots, alongside the notes being spent. Use `spendableMax(asset, { kind, feeAsset })` for a figure that accounts for both.
 :::
 
 ## Paying the fee in a different asset
 
-By default the fee comes out of the asset being moved. Set `feeAsset` to pay in another one — useful when the moved asset is exactly consumed, or when one asset holds the wallet's liquid balance.
+By default the relayer fee is paid in the moved asset. Set `feeAsset` to pay in another:
 
 ```ts twoslash
 // ---cut-start---
-import { connect } from "@lelantos-org/sdk";
-const wallet = await connect({
-    privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-    network: "anvil",
-    rpcUrl: "http://localhost:8545",
+import type { WalletApi } from "@lelantos-org/sdk";
+declare const wallet: WalletApi;
+declare const recipient: `0x${string}`;
+// ---cut-end---
+const { max } = await wallet.spendableMax("WETH", { kind: "withdraw", feeAsset: "USDC" });
+
+await wallet.withdraw({ asset: "WETH", gross: max, recipient, feeAsset: "USDC" });
+```
+
+For spends:
+
+- The fee asset needs its own input note and change slot. The published 4×6 circuit has room for both.
+- The relayer must accept the asset. An asset it does not quote is rejected with `FEE_ASSET_NOT_QUOTED` before proving; `err.accepted` lists the ones it takes.
+- `spendableMax` with the same `feeAsset` reserves the fee note's input slot, so the maximum and the spend agree. A spend that uses every slot for the moved asset fails with `INSUFFICIENT_COVER` and `reason: "fee-slot"`.
+
+### A deposit's relayer fee
+
+A deposit also pays the relayer with a note, funded from the payer's **public** balance. `feeAsset` selects the asset and defaults to `asset`. The protocol fee is always charged in the deposited asset.
+
+```ts twoslash
+// ---cut-start---
+import type { WalletApi } from "@lelantos-org/sdk";
+declare const wallet: WalletApi;
+// ---cut-end---
+// Shield USDC, pay the relayer in WETH.
+const quote = await wallet.quoteDeposit({ asset: "USDC", amount: "100", feeAsset: "WETH" });
+
+quote.separateFee; // true: two token pulls
+quote.pulls; // [{ token: USDC, amount: principal + protocol fee }, { token: WETH, amount: relayer fee }]
+
+const result = await wallet.deposit({ asset: "USDC", amount: "100", feeAsset: "WETH" });
+result.pulled; // what was actually pulled, per asset
+```
+
+When `feeAsset` differs from `asset`, the deposit makes **two token transfers**: the principal and protocol fee in the deposited token, and the relayer fee in the fee token.
+
+- The signature strategy signs both amounts in one Permit2 batch permit.
+- The allowance strategy is used only when an active Permit2 allowance covers both tokens.
+- If the relayer charges nothing, the fee note has zero value in the deposited asset, and the deposit makes one transfer regardless of `feeAsset`.
+
+Cancelling such a deposit refunds each token separately: `refunded` in the deposited asset and `feeRefunded` in the fee asset. See [Cancelling a deposit](/guide/deposit#cancelling-a-deposit).
+
+#### Unsupported fee assets
+
+The SDK rejects these combinations with `INVALID_ARGUMENT` on `feeAsset` before signing:
+
+| Combination | Reason |
+|---|---|
+| `native: true` with a different fee asset | `NativeAdapter` transfers only the wrapped native token |
+| a yield-bearing fee asset different from the deposited asset | the pool rejects it with `FeeAssetUnsupported` |
+
+A fee asset the relayer does not accept is refused with `FEE_ASSET_NOT_QUOTED`, because the relayer would not flush the deposit and it would stay in escrow until cancelled.
+
+To filter a fee-asset picker without a quote per option, `depositFeeAssetRefusal` from `@lelantos-org/sdk/protocol` returns the reason without throwing:
+
+```ts twoslash
+// ---cut-start---
+import type { WalletApi } from "@lelantos-org/sdk";
+declare const wallet: WalletApi;
+// ---cut-end---
+import { depositFeeAssetRefusal } from "@lelantos-org/sdk/protocol";
+
+const usdc = await wallet.asset("USDC");
+const { options } = await wallet.quoteFee("deposit");
+
+const payable = options.filter((o) => depositFeeAssetRefusal(usdc, o.asset, false) === undefined);
+//    ^?
+```
+
+#### Computing pulls without a wallet
+
+`depositTotals` and `depositPulls` from `@lelantos-org/sdk/protocol` are the arithmetic `quoteDeposit` runs:
+
+```ts twoslash
+import { depositPulls, depositTotals } from "@lelantos-org/sdk/protocol";
+
+// 100 USDC principal (scale 1e4), relayer quoted 42 WETH circuit units (scale 1e10).
+const { principal, relayer } = depositTotals({
+    publicIn: 10_000n,
+    feeIn: 42n,
+    depositBps: 20n,
+    scale: 10_000n,
+    publicAssetId: 1n, // USDC
+    feeAssetId: 2n, // WETH; pass 1n when the fee is in the deposited asset
+    feeScale: 10_000_000_000n, // read only when the note is pulled separately
 });
-const to = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266" as const;
-// ---cut-end---
-await wallet.withdraw({ to, asset: "WETH", amount: "0.5", feeAsset: "USDC" });
+
+const usdc = { id: 1n, token: "0x…a1", yieldEnabled: false };
+const weth = { id: 2n, token: "0x…e7", yieldEnabled: false };
+
+const { separateFee, byToken } = depositPulls({ deposited: usdc, feeAsset: weth, principal, relayer });
+// byToken: [{ asset: usdc, amount: principal }, { asset: weth, amount: relayer }]
 ```
 
-::: danger A cross-asset fee needs a wider circuit
-It costs two extra slots — an input note of the fee asset, and an output for its change. That requires `nOut >= 4`, which the only published shape (4×6) satisfies with room to spare.
+| `depositPulls` field | Contents |
+|---|---|
+| `byAsset` | one entry per transfer the pool requests (the batch permit entries) |
+| `byToken` | amounts summed per ERC-20 token; a plain asset and a yield asset can share one token, balance, and Permit2 allowance |
+| `separateFee` | the fee asset when its note is pulled separately, else `undefined` |
 
-The relayer must also quote the asset. `/chains` publishes the list, and one it does not quote is rejected before any proving starts.
-:::
+Pass `publicAssetId` and `feeAssetId` to `depositTotals`. Without them, the presence of `feeScale` alone means a separate fee transfer, and passing it for a fee in the deposited asset produces an incorrect split.
 
-When sizing a spend against `spendableMax()`, pass `maxInputs: nIn - 1` so the prediction leaves the fee its input slot. See [Note management](/guide/notes).
+## Stale fee quotes
 
-## When a fee quote goes stale
+A spend is priced against the relayer's estimate at submission time. A relayer that refuses the fee answers with `RELAYER_REJECTED` and a `reason`:
 
-A relayer that refuses a submission over its shielded fee answers `402`, which surfaces as a `NetworkError`. Re-estimate and rebuild — resubmitting the same payload is refused again.
+| `reason` | Retryable | Meaning |
+|---|---|---|
+| `stale-estimate` | yes | the estimate moved; retrying re-quotes |
+| `fee-too-low`, `fee-missing` | no | the fee note does not satisfy this relayer |
+| `fee-asset-rejected` | no | the relayer does not take this fee asset |
 
-```ts twoslash
-// ---cut-start---
-import { RelayerClient } from "@lelantos-org/sdk/relayer";
-import type { SubmitTransactPayload } from "@lelantos-org/sdk/protocol";
-declare const relayer: RelayerClient;
-declare const payload: SubmitTransactPayload;
-// ---cut-end---
-import { isShieldedFeeRejection } from "@lelantos-org/sdk/relayer";
-
-try {
-    await relayer.submitTransact(payload);
-} catch (e) {
-    if (!isShieldedFeeRejection(e)) throw e;
-    // `e.body` names the asset, what was paid, what was required, and the
-    // grace band.
-}
-```
+See [Errors](/guide/errors#relayer-rejections).
 
 ## Next
 
-- [Errors](/guide/errors) — the full catalogue
-- [Low-level primitives](/guide/primitives) — building the fee output by hand
+- [Errors](/guide/errors)
+- [Building transactions manually](/guide/primitives)

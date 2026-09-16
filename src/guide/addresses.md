@@ -1,53 +1,42 @@
 # Addresses
 
-A Lelantos shielded address is **bech32m** with the HRP `lelantos` and a 96-byte payload: `pk_d || pk || ck`.
+A shielded address is a **bech32m** string with the human-readable prefix `lelantos` and a 96-byte payload, `pk_d || pk || ck`.
 
 ```ts twoslash
 // ---cut-start---
-import { connect } from "@lelantos-org/sdk";
-const wallet = await connect({
-    privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-    network: "anvil",
-    rpcUrl: "http://localhost:8545",
-});
+import type { WalletApi } from "@lelantos-org/sdk";
+declare const wallet: WalletApi;
 // ---cut-end---
 wallet.address;
 // ^?
 ```
 
-All three components are needed:
-
 | Component | Purpose |
 |---|---|
-| `pk_d` | diversified public key — where the note is paid |
-| `pk` | public key |
-| `ck` | clue key — lets a sender construct the FMD clue that makes the note detectable |
+| `pk_d` | diversified public key; the key notes are paid to |
+| `pk` | public key; lets any sender build a valid note commitment for the recipient |
+| `ck` | clue key; lets a sender attach the FMD clue that makes the note detectable |
 
-Without `ck`, a sender cannot produce a detectable note, which is why the address is 96 bytes rather than 32.
-
-::: tip A rejected address is left out of the error
-An address that does not parse raises `InvalidArgumentError`, and the value itself never appears in the message: it would reach logs verbatim. See [Errors](/guide/errors).
-:::
+All three are required to send a detectable note. `ck` is the public half of the detection secret: holding an address lets you pay someone, not watch them.
 
 ## Deriving an address
 
-The address derives deterministically from `nsk`, so every key source in [Creating a wallet](/guide/wallet) produces the same address for the same seed.
+The address is derived deterministically from `nsk`. Every [key source](/guide/wallet#key-source-and-chain-layer) yields the same address for the same input.
 
-`addressFromSpendingKey` is exported from `@lelantos-org/sdk/keys` if you need it without a wallet.
+To derive an address without a wallet, use `addressFromSpendingKey` or `addressFromViewingKey` from `@lelantos-org/sdk/primitives`.
 
-## Validating what a user typed
+## Validating input
 
-Two levels of check, and which you want depends on how much work you are prepared to do.
-
-`shieldedAddress(value)` checks the HRP and the bech32m charset — cheap enough for keystroke-level validation. `decodeAddress(J, value)` additionally verifies the checksum and that both point slots are on the curve, which is what actually proves an address is payable.
+| Function | Checks | Cost |
+|---|---|---|
+| `shieldedAddress(value)` | prefix and bech32m character set | cheap; suitable for validation on each keystroke |
+| `parseAddress(value)` | checksum, and that both points are on the curve | async; loads the crypto context once; confirms the address is payable |
 
 ```ts twoslash
 // ---cut-start---
 declare const entered: string;
 // ---cut-end---
-import { isWalletError, shieldedAddress } from "@lelantos-org/sdk";
-import { cryptoContext } from "@lelantos-org/sdk/crypto";
-import { decodeAddress } from "@lelantos-org/sdk/keys";
+import { isWalletError, parseAddress, shieldedAddress } from "@lelantos-org/sdk";
 
 function looksValid(value: string): boolean {
     try {
@@ -58,24 +47,22 @@ function looksValid(value: string): boolean {
     }
 }
 
-const { J } = await cryptoContext();
-
 try {
-    const { pk_d, pk, ck } = decodeAddress(J, entered); // full validation
+    const { pk_d, pk, ck } = await parseAddress(entered); // full validation
     console.log(pk_d, pk, ck);
-} catch (e) {
-    if (!isWalletError(e, "INVALID_ARGUMENT")) throw e;
+} catch (err) {
+    if (!isWalletError(err, "INVALID_ARGUMENT")) throw err;
     console.error("not a payable Lelantos address");
 }
 ```
 
-`transfer()` decodes the address itself, so validating first is about giving the user a better message — not about safety.
+`transfer()` and `deposit()` validate `recipient` fully themselves. Validating in advance only improves the error shown to the user.
 
-::: tip The rejected address is never in the error message
-Error messages reach application logs verbatim, and an address names a payee. `InvalidArgumentError` reports `argument` and nothing more, so you have to echo the offending value yourself if you want it shown.
-:::
+`decodeAddress(J, value)` in `@lelantos-org/sdk/primitives` is the synchronous form of `parseAddress`, for code that already holds a Jubjub context.
+
+An invalid address raises `INVALID_ARGUMENT`. `parseAddress` and the wallet's operations omit the address from the message, so payee information does not reach application logs. Display the rejected value from your own state if needed.
 
 ## Next
 
-- [Creating a wallet](/guide/wallet)
 - [Transfer](/guide/transfer)
+- [Watch-only wallets](/guide/watch-only)

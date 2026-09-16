@@ -1,159 +1,136 @@
 # Note management
 
-The pool tracks notes, not balances, so most wallet questions are really questions about which notes exist and which of them a single transaction can reach. This page covers reading the local cache, predicting what a spend can cover, and selecting notes yourself.
+The pool stores notes, not balances. This page covers reading the local note cache, computing the maximum amount one spend can send, the selection rules, and consolidating notes.
 
-## Inspecting the cache
+## Reading notes
 
 ```ts twoslash
 // ---cut-start---
-import { connect } from "@lelantos-org/sdk";
-const wallet = await connect({
-    privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-    network: "anvil",
-    rpcUrl: "http://localhost:8545",
-});
+import type { WalletApi } from "@lelantos-org/sdk";
+declare const wallet: WalletApi;
 // ---cut-end---
-wallet.notes(); // every note, every asset
-wallet.notes({ asset: 1n, spent: false }); // filter — both fields optional
-wallet.balance(1n); // bigint, unspent only
-wallet.balances(); // Map<assetId, bigint>, unspent only
+const all = await wallet.notes(); // every note, every asset
+const unspentUsdc = await wallet.notes({ asset: 1n, spent: false }); // both fields optional
+//    ^?
 ```
 
-These are synchronous reads of the local cache. They reflect the last `sync()` and nothing newer.
+`notes()` reads the local cache as of the last sync; it makes no request. For totals, use [`balance(asset)`](/guide/state#balance) or `state().balances`.
 
-`WalletNote` is the integrator-facing type; the storage encoding (decimal-string bigints) is internal. For cryptographic fields — custom proofs, low-level builders — call `note.notePayload()` to get `{ asset, value, rho, rcm, rcvDep }` as native bigints.
+`WalletNote` is the public note view: `id`, `asset`, `value`, `spent`, `cm`, `firstSeenBlock`, `discoveredAt`. For the fields custom proofs need, `note.notePayload()` returns `{ asset, value, rho, rcm, rcvDep }`.
 
-## What a single spend can actually reach
+## What a single spend can reach
 
-**The balance is not the maximum sendable amount.** A "max" button built on `balance()` will produce `InsufficientCoverError` against a figure your own UI supplied.
+`balance().total` is not the maximum sendable amount. A "max" button based on it can fail with `INSUFFICIENT_COVER` or `NOTES_HELD`.
 
-`spendableMax()` answers the question the selector will actually be asked, under the same rules, and breaks down what is being held back.
+`spendableMax(asset, options)` applies the same rules as the spend and reports why the rest of the balance is excluded:
 
 ```ts twoslash
 // ---cut-start---
-import { connect } from "@lelantos-org/sdk";
-const wallet = await connect({
-    privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-    network: "anvil",
-    rpcUrl: "http://localhost:8545",
-});
+import type { WalletApi } from "@lelantos-org/sdk";
+declare const wallet: WalletApi;
 // ---cut-end---
-import { assetId, formatAmount } from "@lelantos-org/sdk";
+import { formatAmount } from "@lelantos-org/sdk";
 
-const weth = await wallet.asset(1n);
-const { max, withheld } = await wallet.spendableMax(assetId(1n));
+const weth = await wallet.asset("WETH");
+const { max, withheld } = await wallet.spendableMax(weth.id, { kind: "transfer" });
 
 console.log("send at most", formatAmount(max, weth, { symbol: true }));
-console.log({
-    reserved: withheld.reserved, // held by a submit whose outcome is unconfirmed
-    dust: withheld.dust, // below the dust threshold
-    cooldown: withheld.cooldown, // too recently seen to have cleared the cooldown
-    slots: withheld.slots, // spendable, but beyond the circuit's input arity
-});
+console.log(withheld); // { reserved, cooldown, dust, slots }
 ```
 
-The four causes are worth distinguishing in a UI. `reserved`, `dust`, and `cooldown` resolve with time. `slots` does not: the balance is spread across more notes than one transaction can consume, and only a consolidation merges it.
+| Option | Effect |
+|---|---|
+| `kind` | reserve the relayer fee for this operation: subtracted from `max` when paid in `asset`, one input slot when paid in another. Omitted: nothing is reserved |
+| `feeAsset` | with `kind`: the asset the spend will pay the fee in; default `asset` |
+| `native` | with `kind: "withdraw"`: price the native-unwrap estimate |
+| `selection` | the same selection rules the spend will use |
 
-Pass the same `SelectOpts` a spend will use, so the prediction and the spend are computed under identical rules — including `maxInputs: nIn - 1` when a cross-asset fee will claim an input slot of its own.
+`max` is the largest transfer `amount`, or withdrawal or swap `gross`, that one spend can cover. Pass the same options the operation will use, and the two agree.
 
-## Selecting notes manually
+## Selection rules
 
-```ts twoslash
-// ---cut-start---
-import { connect } from "@lelantos-org/sdk";
-const wallet = await connect({
-    privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-    network: "anvil",
-    rpcUrl: "http://localhost:8545",
-});
-const chainTip = 1000;
-// ---cut-end---
-import { assetId, circuitAmount } from "@lelantos-org/sdk";
+Every spend accepts `selection`, and `spendableMax` accepts the same object, so a predicted maximum and the spend agree.
 
-// `selectNotes` takes branded values; the constructors validate as they brand.
-const asset = assetId(1n);
-const target = circuitAmount(500n);
+| Field | Default | Effect |
+|---|---|---|
+| `dustThreshold` | `0n` | exclude notes below this value; roughly twice the marginal fee is a good start |
+| `cooldownBlocks` | `1` | minimum note age in blocks; needs a chain layer that reports `blockNumber` |
+| `maxInputs` | the circuit's `nIn` | notes one spend may consume; values above `nIn` are capped |
+| `bucketPct` | `0.05` | tiebreak shuffle width |
+| `only` | — | restrict candidates to these note ids |
 
-const result = wallet.selectNotes(asset, target, {
-    fee: 25n, // cover threshold becomes target + fee
-    dustThreshold: 100n, // exclude notes below this; ~2 × the marginal fee
-    cooldownBlocks: 2, // minimum note age, in blocks
-    tipBlock: chainTip, // required for the cooldown to apply at all
-    bucketPct: 0.05, // tiebreak shuffle width
-});
+The SDK supplies the fee threshold and the chain tip itself, so they are not options.
 
-if (result.plan === "direct") {
-    console.log(result.notes, result.sum);
-} else {
-    console.log("consolidate first:", result.consolidate);
-}
-```
+The default selector is **SFRT** (Smallest-First, Random Tiebreak). Compared with largest-first selection, it avoids a balance-ordering pattern that links spends, and it consumes dust over time. `DenominationCoinSelector` wraps SFRT and prefers exact covers, which produce no change; pass it as `selector` to `createWallet`. See [Denominations](/guide/denominations#selecting-for-zero-change).
 
-The default selector is **SFRT** (Smallest-First, Random Tiebreak). It avoids the largest-first balance-ordering fingerprint and drains dust over time — both privacy properties, not performance ones.
+### Spend cooldown
 
-`DenominationCoinSelector` wraps it and prefers a cover that pays the target exactly, which produces no change note at all. Inject it where withdrawals are denominated — see [Denominations](/guide/denominations).
+`cooldownBlocks` excludes notes received within that many blocks. It prevents spending change in the same block that created it, which would link the two transactions. It applies only when the chain layer implements `blockNumber` (the built-in viem adapter does) and notes have a `firstSeenBlock`.
 
-### The spend cooldown
+### Concurrent spends
 
-`cooldownBlocks` defaults to 1 and needs both `tipBlock` and a per-note `firstSeenBlock` to do anything; without them it is inert. One block is enough to break the same-block change-link heuristic, where a change note spent in the block that created it ties the two spends together for an observer counting leaves.
-
-`connect()` supplies `tipBlock` from `ChainAdapter.blockNumber()` when the adapter implements it.
+A spend leases the notes it selects until it settles. Two spends started together select disjoint notes, and a spend whose notes are all leased rejects `NOTES_HELD` with `retryable: true`. Leases are released when a spend fails definitively. After a submission whose outcome is unknown, its notes stay reserved until the spent set confirms them or the reservation expires; see [`SPEND_OUTCOME_UNKNOWN`](/guide/errors#spend-outcome-unknown).
 
 ## Consolidating explicitly
 
-`autoConsolidate: true` handles this on any spend. To drive it yourself, self-spend the notes the selector named — by **id**, not by amount.
+`autoConsolidate: true` merges notes automatically during a spend. To consolidate manually — to show progress, or ahead of time — self-transfer the notes named by `INSUFFICIENT_COVER`, pinning them with `selection.only`:
 
 ```ts twoslash
 // ---cut-start---
-import { connect } from "@lelantos-org/sdk";
-const wallet = await connect({
-    privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-    network: "anvil",
-    rpcUrl: "http://localhost:8545",
-});
+import type { WalletApi } from "@lelantos-org/sdk";
+declare const wallet: WalletApi;
+declare const recipient: string;
 // ---cut-end---
-import { assetId, circuitAmount } from "@lelantos-org/sdk";
+import { isWalletError } from "@lelantos-org/sdk";
 
-const plan = wallet.selectNotes(assetId(1n), circuitAmount(500n));
+try {
+    await wallet.transfer({ asset: "USDC", amount: "500", recipient });
+} catch (err) {
+    if (!isWalletError(err, "INSUFFICIENT_COVER") || err.reason !== "arity") throw err;
 
-if (plan.plan === "consolidate-first") {
-    // `only` pins the candidate set to exactly these notes.
-    await wallet.transfer({
-        to: wallet.address,
-        asset: 1n,
-        amount: plan.consolidateSum,
-        selectOpts: { only: plan.consolidate.map((n) => n.id) },
+    const merge = await wallet.transfer({
+        asset: err.asset,
+        amount: err.consolidateSum, // the notes' total, so no change is left over
+        recipient: wallet.address,
+        selection: { only: err.consolidate.map((n) => n.id) },
     });
-    await wallet.sync(); // the merged note is not spendable until it is in the tree
+    // The merged note is not spendable until it is indexed and in the tree.
+    await wallet.awaitCommitments(merge.ownCommitments);
+
+    await wallet.transfer({ asset: "USDC", amount: "500", recipient });
 }
 ```
 
-::: warning Name the ids, not just the amount
-Asking for a self-transfer of `consolidateSum` does not name the dust. SFRT returns the smallest-*sum* cover of that amount, so any single note whose value falls between the target and the dust set's total is a cheaper cover than the dust set itself. When one exists the merge silently does nothing, and the retry then fails for exactly the same reason as the first attempt. `only` removes the ambiguity.
+::: warning Pin the notes with `only`
+A self-transfer of `consolidateSum` without `only` may select a different, single note of similar value instead of the intended small notes. The consolidation then changes nothing and the retry fails again.
 :::
 
-## Housekeeping
+The self-transfer pays the relayer fee from the same notes when the fee is in the same asset, so `consolidateSum` may need to be reduced by the fee. Pass `feeAsset` to pay it from another asset instead.
+
+## Maintenance
 
 ```ts twoslash
 // ---cut-start---
-import { connect } from "@lelantos-org/sdk";
-const wallet = await connect({
-    privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-    network: "anvil",
-    rpcUrl: "http://localhost:8545",
-});
-declare const ids: string[];
+import type { WalletApi } from "@lelantos-org/sdk";
+declare const wallet: WalletApi;
 // ---cut-end---
-await wallet.refresh(); // re-read the store after an external mutation
-const { removed } = await wallet.compact(); // drop spent notes; shrinks the file only
-await wallet.markSpent(ids); // force-mark, for recovery flows
+await wallet.sync({ reload: true }); // re-read the note store after an external mutation
+const { removed } = await wallet.compact(); // drop spent notes; balances do not change
+const rounds = await wallet.redenominate("USDC", { maxRounds: 4 }); // re-split change onto the ladder
 await wallet.dispose(); // release scanner and prover workers
 ```
 
-`compact()` never changes a balance — it only removes notes already flagged spent. `dispose()` matters most in a long-lived browser session: a `WorkerPoolScanner` holds two to eight workers, each with its own WASM heap, so an application that rebuilds its wallet on every account switch leaks a pool per switch without it.
+| Method | Effect |
+|---|---|
+| `sync({ reload: true })` | reloads the note store after an external change, then syncs |
+| `compact()` | removes notes already marked spent |
+| `redenominate(asset)` | self-transfers off-ladder notes onto denominations — see [Denominations](/guide/denominations#change-lands-on-the-ladder-too) |
+| `dispose()` | releases workers — see [Disposing a wallet](/guide/wallet#disposing-a-wallet) |
+
+Recovery tools that bypass the wallet's own bookkeeping — `markSpent`, direct access to the note store, selector, and tree — are on `walletInternals(wallet)` in `@lelantos-org/sdk/internal`, which carries no stability guarantee.
 
 ## Next
 
-- [Custom storage](/guide/storage) — persisting the note cache
-- [Pluggable interfaces](/guide/interfaces) — replacing the selector
-- [Denominations](/guide/denominations) — how change is shaped, and `redenominate`
+- [Custom storage](/guide/storage)
+- [Pluggable interfaces](/guide/interfaces)
+- [Denominations](/guide/denominations)

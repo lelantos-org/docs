@@ -1,27 +1,54 @@
 # Networks
 
-A network preset carries everything `connect()` needs to reach one deployment: the chain id, the pool and relayer contract addresses, the service URLs, and the tree depth the circuit was built for. Pass a built-in name or your own preset object; an unknown name throws at `connect()` time.
+A network preset contains the deployment details `connect()` needs: chain id, pool and relayer addresses, service URLs, and the circuit's tree depth. Pass a preset name or a `NetworkPreset` object as `network`.
 
-| Preset | chainId | Status |
+| Preset | Chain id | Status |
 |---|---|---|
-| `anvil` | 31337 | local |
-| `localnet` | 31337 | local (anvil alias) |
 | `mainnet` | 1 | deployed |
 | `base` | 8453 | deployed |
 | `arbitrum` | 42161 | deployed |
-| `sepolia` | 11155111 | placeholder → `NetworkNotDeployedError` |
+| `sepolia` | 11155111 | placeholder; not accepted by `connect()` |
+| `anvil` | 31337 | the SDK's own test preset; its addresses are deploy-dependent |
 
-The three deployed chains share one relayer and one FMD server; only the chainId differs.
+The deployed networks share one relayer and one FMD server. `NETWORKS` exports the table.
 
-A preset is a **placeholder** when its `maspAddress` or `relayerAddress` is `null`, and that is what `connect()` refuses on. `sepolia` carries service URLs and a `deploymentStatusUrl` but no contracts yet.
+## RPC endpoint
 
-## Custom network
-
-Pass a `NetworkPreset` object in place of the name.
+The public presets ship no RPC endpoint: a shared default would rate-limit and observe every user. Pass your own as `rpcUrl`, which overrides `preset.rpcUrl`:
 
 ```ts twoslash
 // ---cut-start---
-declare const pk: `0x${string}`;
+declare const privateKey: `0x${string}`;
+// ---cut-end---
+import { connect } from "@lelantos-org/sdk";
+
+const wallet = await connect({ network: "arbitrum", rpcUrl: "https://arb-rpc.example.com", privateKey });
+```
+
+Without an endpoint, `connect()` throws `WALLET_CONFIG` before any signing prompt. `rpcUrl` is not needed when the chain layer is pre-built (`chain` or `reader`).
+
+## Placeholder presets
+
+A placeholder preset has `maspAddress: null` and `relayerAddress: null`. Its name does not compile as `network`, because `DeployedNetworkName` excludes it:
+
+```ts twoslash
+// @errors: 2322
+// ---cut-start---
+declare const privateKey: `0x${string}`;
+declare const rpcUrl: string;
+// ---cut-end---
+import { connect } from "@lelantos-org/sdk";
+
+await connect({ network: "sepolia", rpcUrl, privateKey });
+```
+
+Called from JavaScript, the same call throws `NETWORK_NOT_DEPLOYED`. An unknown name throws `WALLET_CONFIG`.
+
+## Custom network
+
+```ts twoslash
+// ---cut-start---
+declare const privateKey: `0x${string}`;
 declare const rpcUrl: string;
 // ---cut-end---
 import { connect, type NetworkPreset } from "@lelantos-org/sdk";
@@ -33,18 +60,32 @@ const myChain: NetworkPreset = {
     relayerUrl: "https://relayer.my-deployment.example",
     fmdUrl: "https://fmd.my-deployment.example",
     treeDepth: 10,
-    permit2Address: "0x000000000022D473030F116dDEE9F6B43aC78BA3", // optional
+    // Optional:
+    quoterUrl: "https://quote.my-deployment.example", // enables swaps
+    nativeAdapterAddress: "0x0000000000000000000000000000000000000003", // native deposits and withdrawals
+    permit2Address: "0x000000000022D473030F116dDEE9F6B43aC78BA3", // defaults to the canonical deployment
+    submitTimeoutMs: 30_000,
 };
 
-const wallet = await connect({ privateKey: pk, network: myChain, rpcUrl });
+const wallet = await connect({ network: myChain, rpcUrl, privateKey });
 ```
 
-Set `maspAddress` or `relayerAddress` to `null` to mark a preset as a placeholder; `connect()` then throws `NetworkNotDeployedError`.
+| Field | Effect when absent |
+|---|---|
+| `quoterUrl` | `capabilities.swap` is `false` |
+| `rpcUrl` | `rpcUrl` must be passed to `connect()` |
+| `nativeAdapterAddress` | `capabilities.nativeDeposit` and `nativeWithdraw` are `false` |
+| `swapWrapperAddress` | read from the relayer's `/chains` |
+| `permit2Address` | the canonical `0x000000000022D473030F116dDEE9F6B43aC78BA3` |
+| `submitTimeoutMs` | 30,000 ms per submit attempt; `http.submitTimeoutMs` overrides it |
 
-`treeDepth` must match the deployed contract and the circuit build. A mismatch is not caught locally — the proof simply fails to verify on chain.
+`relayerAddress` is bound into every proof. It must be the submitter address the relayer publishes on `/chains` — its `Bundler` contract where it bundles, not its signing account.
+
+::: warning `treeDepth` must match the deployment
+The value must equal the depth used by the deployed contract and circuit. A mismatch produces no local error; proofs fail verification on chain.
+:::
 
 ## Next
 
-- [Chain adapters](/guide/chain-adapter) — building the adapter yourself
-- [Errors](/guide/errors)
+- [Chain adapters](/guide/chain-adapter)
 - [Browser usage](/guide/browser)

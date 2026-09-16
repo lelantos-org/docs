@@ -13,9 +13,10 @@
         "check:api-coverage": "node scripts/check-api-coverage.mjs",
         "check:nav": "node scripts/check-nav.mjs",
         "check:fences": "node scripts/check-fences.mjs",
+        "gen:llms": "node scripts/gen-llms.mjs",
         "check:spell": "cspell --no-progress \"src/**/*.md\" \"src/.vitepress/**/*.ts\" \"scripts/**/*.mjs\" \"*.md\"",
         "dev": "npm run gen:reference && vitepress dev src",
-        "build": "npm run gen:reference && npm run check:api-coverage && npm run check:nav && npm run check:fences && vitepress build src",
+        "build": "npm run gen:reference && npm run check:api-coverage && npm run check:nav && npm run check:fences && vitepress build src && npm run gen:llms",
         "preview": "vitepress preview src",
         "format": "biome format --write .",
         "format:check": "biome format .",
@@ -33,6 +34,6 @@
         "vitepress": "^1.6.3"
     },
     "dependencies": {
-        "@lelantos-org/sdk": "0.37.0"
+        "@lelantos-org/sdk": "0.39.0"
     }
 }

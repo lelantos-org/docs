@@ -1,106 +1,109 @@
-# Transfer (shielded → shielded)
+# Transfer
 
-A transfer never touches a public balance. It spends your notes and creates new ones — one for the payee, one for your change, and one for the relayer's fee when it charges.
+A transfer moves value between shielded addresses. It spends the sender's notes and creates new notes for the payee, the change, and the relayer fee if one is charged. No public balance changes, and no amount is published.
 
 ```ts twoslash
 // ---cut-start---
-import { connect } from "@lelantos-org/sdk";
-const wallet = await connect({
-    privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-    network: "anvil",
-    rpcUrl: "http://localhost:8545",
-});
-const peerBech32 = wallet.address;
+import type { WalletApi } from "@lelantos-org/sdk";
+declare const wallet: WalletApi;
+declare const peer: string;
 // ---cut-end---
 const tx = await wallet.transfer({
-    to: peerBech32,
-    amount: 100n, // bigint = circuit units; "1.25" = human units
-    asset: 1n, // id, token address or symbol
-    selectOpts: { dustThreshold: 10n },
-    autoConsolidate: true,
-    onPhase: (p) => console.log(p), // "preparing" | "proving" | "submitting"
+    asset: "USDC", // id, token address or symbol
+    amount: "25", // the recipient note's value — see Amounts
+    recipient: peer, // bech32m `lelantos1…` address
+    feeAsset: "USDC", // optional — pay the relayer in another asset
+    autoConsolidate: true, // optional — merge notes and retry when no cover exists
+    selection: { dustThreshold: 10n }, // optional — coin-selection rules
+    onPhase: (phase) => console.log(phase), // "preparing" | "consolidating" | "proving" | "submitting" | "confirmed"
 });
 
 tx.recipientCommitment;
 // ^?
 ```
 
-`onPhase` is worth wiring into any UI: `"proving"` is a multi-second, CPU-bound step, and a progress indicator that does not distinguish it from a network round trip reads as a hang. See [Browser usage](/guide/browser) for measured timings.
+| Option | Description |
+|---|---|
+| `asset` | registry id, token address, or symbol |
+| `amount` | the recipient note's value: a decimal string, an SDK-returned amount, or `{ baseUnits }` |
+| `recipient` | recipient shielded address |
+| `feeAsset` | pay the relayer fee in another asset — see [Fees](/guide/fees#paying-the-fee-in-a-different-asset) |
+| `autoConsolidate` | on `INSUFFICIENT_COVER`, merge notes with a self-transfer and retry once. Default `false` |
+| `selection` | coin-selection rules (`dustThreshold`, `cooldownBlocks`, `maxInputs`, `only`, …) — see [Note management](/guide/notes#selection-rules) |
+| `deadline` | unix seconds; checked before submitting, else `DEADLINE_PASSED` |
+| `signal`, `onPhase`, `opId` | cancellation, progress, and a correlation id — see [Errors](/guide/errors#operation-ids-and-cancellation) |
 
-::: warning Read `recipientCommitment`, not `commitments[0]`
-Output slots are **shuffled** — that is a privacy property, not an implementation detail. Their order is precisely what would otherwise publish which commitment belongs to the payee. Indexing `commitments` gives you the right one only by luck.
-:::
+`"proving"` is CPU-bound and takes seconds. Show it as a distinct state in a UI. See [Benchmarks](/guide/benchmarks) for timings. `"confirmed"` arrives when the relayer answers, which it does once the transaction is mined.
 
-## Reading the receipt
-
-`TransferResult` reports both sides of the transaction:
+## Reading the result
 
 | Field | Meaning |
 |---|---|
-| `recipientCommitment` | the payee's note — the only reliable way to identify it |
-| `ownCommitments` | outputs this wallet can recover: change, and the payee note on a self-transfer |
-| `nonZeroCommitments` | outputs with value, excluding the circuit's zero-value pads |
-| `spent` | ids of the notes consumed |
-| `inputSum` / `sent` / `change` | value in, value to the payee, value back to you |
+| `amount` | the payee note's value (`Money`) |
+| `recipient` | the payee |
+| `recipientCommitment` | the payee note's commitment |
+| `fees.relayer` | the relayer fee note (`Money` in the fee asset), or `null` for a free relay |
+| `fees.protocol` | always `null`: transfers pay no protocol fee |
+| `ownCommitments` | outputs this wallet will recover: change, plus the payee note on a self-transfer |
+| `nonZeroCommitments` | outputs with a non-zero value; the rest are padding |
+| `spent` | ids of the consumed notes, across both assets when the fee was cross-asset |
+| `change` | change left in `asset`, circuit units |
+| `txHash`, `operation` | the relayer's transaction, and where this operation sits in it when bundled |
 
-Handing `recipientCommitment` to the payee leaks nothing: they recover the same note by scanning regardless.
+::: warning Use `recipientCommitment`, not `commitments[0]`
+Output order is randomized so observers cannot tell which output is the payment. `commitments[0]` is not the payee's note.
+:::
 
-## When no cover exists
+Sharing `recipientCommitment` with the payee reveals nothing new; the payee finds the same note when syncing, and can wait for it with `awaitCommitments([cm])`.
 
-The wallet auto-selects unspent notes up to the circuit's input arity, and change returns to you. When no selection covers the amount, it throws `InsufficientCoverError` rather than sending less.
+## When the notes do not fit
+
+A spend consumes at most `nIn` notes (four with the default circuit). The four funding errors say why a spend could not be funded, and each has its own remedy:
+
+| Code | Cause | Remedy |
+|---|---|---|
+| `INSUFFICIENT_BALANCE` | the unspent notes do not add up to the amount plus a same-asset fee | send less, or top up |
+| `NOTES_HELD` | they would, but some are reserved by another spend, cooling down, or dust | `retryable: true` means waiting frees enough |
+| `INSUFFICIENT_COVER` | they add up, but no combination fits the input slots | consolidate |
+| `FEE_ASSET_NOT_QUOTED` | the relayer does not accept `feeAsset` | pick one of `accepted` |
 
 ```ts twoslash
 // ---cut-start---
-import { connect } from "@lelantos-org/sdk";
-const wallet = await connect({
-    privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-    network: "anvil",
-    rpcUrl: "http://localhost:8545",
-});
-const to = wallet.address;
-const amount = 100n;
+import type { WalletApi } from "@lelantos-org/sdk";
+declare const wallet: WalletApi;
+declare const recipient: string;
 // ---cut-end---
 import { isWalletError } from "@lelantos-org/sdk";
 
 try {
-    await wallet.transfer({ to, amount });
-} catch (e) {
-    if (isWalletError(e, "INSUFFICIENT_COVER")) {
-        // `e.consolidate` / `e.consolidateSum` are typed here — no `instanceof`.
-        console.log("consolidate first:", e.consolidate.map((n) => n.id), e.consolidateSum);
-    } else throw e;
+    await wallet.transfer({ asset: "USDC", amount: "25", recipient });
+} catch (err) {
+    if (isWalletError(err, "INSUFFICIENT_COVER")) {
+        // `err.consolidate` names the notes to merge; `consolidationAttempted` says whether
+        // `autoConsolidate` already tried.
+        console.log(err.consolidate.map((n) => n.id), err.consolidateSum, err.consolidationAttempted);
+    } else if (isWalletError(err, "INSUFFICIENT_BALANCE")) {
+        console.log("have", err.available, "need", err.required);
+    } else {
+        throw err;
+    }
 }
 ```
 
-`isWalletError(e, "INSUFFICIENT_COVER")` narrows the type, so the recovery fields are available without a cast. See [Errors](/guide/errors).
+To avoid `INSUFFICIENT_COVER`:
 
-### Letting the wallet recover
+| Approach | Behaviour |
+|---|---|
+| `autoConsolidate: true` | the wallet merges the notes named by the selector, then retries. Costs one extra proof and transaction. Phases report `"consolidating"`. |
+| manual consolidation | catch the error and merge the notes yourself, to show progress in a UI. See [Consolidating explicitly](/guide/notes#consolidating-explicitly). |
+| `spendableMax()` | size the transfer to what one spend can reach, so the error does not occur. See [What a single spend can reach](/guide/notes#what-a-single-spend-can-reach). |
 
-`autoConsolidate: true` self-spends the notes the selector named and retries the transfer, which is the right default for most applications:
+## Concurrent spends
 
-```ts twoslash
-// ---cut-start---
-import { connect } from "@lelantos-org/sdk";
-const wallet = await connect({
-    privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-    network: "anvil",
-    rpcUrl: "http://localhost:8545",
-});
-const to = wallet.address;
-// ---cut-end---
-await wallet.transfer({ to, amount: 100n, autoConsolidate: true });
-```
-
-It costs an extra transaction, an extra proof, and an extra sync, so a UI that wants to show what is happening should catch the error and drive the merge itself. See [Note management](/guide/notes) for that flow — and note that the merge must name the notes by **id**, not by amount.
-
-To avoid the failure entirely, size the transfer against `wallet.spendableMax()` rather than `wallet.balance()`.
-
-## Paying the fee in another asset
-
-`feeAsset` moves the relayer's shielded fee onto a different asset, at the cost of two extra circuit slots. See [Fees](/guide/fees) for the constraints — it requires `nOut >= 4`, and the relayer has to quote that asset.
+Each spend leases the notes it selects until it settles, so two spends started at once never select the same note. The second one selects from what is left, or rejects `NOTES_HELD` (retryable) when the leased notes were needed.
 
 ## Next
 
 - [Withdraw](/guide/withdraw)
-- [Fees](/guide/fees) — quoting before you build
-- [Note management](/guide/notes) — selecting notes yourself
+- [Fees](/guide/fees)
+- [Note management](/guide/notes)

@@ -11,19 +11,23 @@
 # ── web platform ──────────────────────────────────────────────────────────
 bech
 checkpointed
+circom
 forgeable
 Groth
 hyperlegible
 Jubjub
 keccak
 lelantos
+llms
 localnet
 MASP
 metaquoter
 OPFS
 passthroughs
+pluggables
 proxiable
 redenominate
+rollups
 Sfrt
 shikijs
 snarkjs

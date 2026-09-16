@@ -1,174 +1,211 @@
-# Deposit (shield)
+# Deposit
 
-A deposit moves value from a public ERC-20 balance into the shielded pool. It is the one wallet operation your own signer broadcasts, so it is also the one that costs you gas directly.
+A deposit moves tokens from a public ERC-20 balance into the shielded pool. It is the only operation broadcast by your own account, so it needs a chain layer that signs (`capabilities.deposit`) and you pay its gas.
 
 ```ts twoslash
 // ---cut-start---
-import { connect } from "@lelantos-org/sdk";
-const wallet = await connect({
-    privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-    network: "anvil",
-    rpcUrl: "http://localhost:8545",
-});
-const peerBech32 = wallet.address;
+import type { WalletApi } from "@lelantos-org/sdk";
+declare const wallet: WalletApi;
+declare const friend: string;
 // ---cut-end---
-const tx = await wallet.deposit({
-    amount: 1000n, // circuit units; on-chain inAmt = amount * scale
-    asset: 1n, // optional — id, token address or symbol. Default asset 1
-    to: peerBech32, // optional, default own address
-    deadline: 1700000000n, // optional permit expiry (default: now + 3600s)
-    asEth: false, // optional; true routes native ETH via NativeAdapter
-    onPhase: (p) => console.log(p), // "signing" | "submitting" | "broadcast" | "mined"
+const result = await wallet.deposit({
+    asset: "USDC", // id, token address or symbol
+    amount: "100", // the new note's value; fees are charged on top
+    feeAsset: "USDC", // optional — asset the relayer's fee note is paid in. Default `asset`
+    recipient: friend, // optional — shielded owner of the note. Default this wallet
+    deadline: BigInt(Math.floor(Date.now() / 1000) + 600), // optional — permit and escrow deadline
+    onPhase: (phase, { opId, txHash }) => console.log(opId, phase, txHash),
 });
 
-tx.depositId;
-// ^?
+result.escrow;
+//     ^?
 ```
 
-Each method returns its own receipt type — `deposit()` gives you a `DepositResult`, not the four-way `TransactionResult` union — so `tx.depositId` needs no narrowing.
+| Option | Default | Description |
+|---|---|---|
+| `asset` | — | registry id, token address, or symbol |
+| `amount` | — | the principal that becomes the note (`publicIn`); the protocol fee and relayer fee are pulled on top |
+| `feeAsset` | `asset` | asset for the relayer fee note — see [A deposit's relayer fee](/guide/fees#a-deposit-s-relayer-fee) |
+| `recipient` | this wallet | shielded owner of the new note |
+| `native` | `false` | send the native coin through `NativeAdapter`; `asset` must be the wrapped coin |
+| `deadline` | now + 1 h | Permit2 signature and escrow deadline, unix seconds |
+| `signal`, `onPhase`, `opId` | — | cancellation, progress, and a correlation id — see [Errors](/guide/errors#operation-ids-and-cancellation) |
 
-The chain adapter signs an EIP-2612 permit so the deposit and the ERC-20 pull happen in one atomic transaction, with no separate `approve`. Deposit strategies (`native`, `allowance`, `witness`) are picked per-asset by the adapter; a mismatch raises `DepositAdapterError`.
+Phases, in order: `preparing`, `signing` (only when a Permit2 signature is needed), `submitting`, `broadcast` (the transaction hash is known), `confirmed` (mined).
+
+## Quoting first
+
+`quoteDeposit` runs the same resolution and validation as `deposit`, reads balances and allowances, and returns what the deposit would pull and which path it would take — without signing anything.
+
+```ts twoslash
+// ---cut-start---
+import type { WalletApi } from "@lelantos-org/sdk";
+declare const wallet: WalletApi;
+// ---cut-end---
+import { formatAmount } from "@lelantos-org/sdk";
+
+const quote = await wallet.quoteDeposit({ asset: "USDC", amount: "100" });
+
+for (const pull of quote.pulls) {
+    // One entry per ERC-20 the pool pulls: principal + protocol fee, and the relayer's note.
+    console.log(pull.token, pull.amount, "balance", pull.balance, "covered", pull.allowance?.covers);
+}
+quote.fees.protocol; // Money in USDC, or null
+quote.fees.relayer; // Money in the fee asset, or null
+quote.strategy; // "native" | "allowance" | "witness"
+quote.sufficientBalance; // false → the deposit would revert for lack of funds
+quote.allowanceSetupAvailable; // true → setupDepositAllowance would remove the per-deposit signature
+```
+
+| Field | Meaning |
+|---|---|
+| `amount` | the new note's value |
+| `principal` | `amount` plus the protocol fee, in base units of `asset` |
+| `pulls[]` | per token: `amount` (exact pull), `ceiling` (what is signed; adds yield headroom on a yield asset), `balance`, `allowance` |
+| `separateFee` | the relayer's note is pulled on its own, in another token |
+| `strategy` | the path `deposit` would take now |
+| `quotedAt` | unix seconds; yield figures drift, so re-quote rather than cache |
+
+A quote rejects exactly as the deposit would before signing: `FEE_ASSET_NOT_QUOTED`, `INVALID_ARGUMENT` for a refused fee asset or bad amount, `UNSUPPORTED_OPERATION` for `native` without an adapter, `NO_EVM_ACCOUNT` without a signing chain layer.
+
+## Deposit strategies
+
+The token transfer and the deposit execute in one transaction; no separate `approve` per deposit is needed. The wallet picks a path from the adapter's capabilities and the account's Permit2 state:
+
+| Strategy | When | Prompts |
+|---|---|---|
+| `native` | `native: true` | one transaction |
+| `allowance` | every pull is covered by a Permit2 allowance with time to spare | one transaction |
+| `witness` | otherwise | one Permit2 signature, then one transaction |
+
+### One-time allowance setup
+
+`setupDepositAllowance` authorizes the pool through Permit2 once, so later deposits take the `allowance` path with no signature. It approves Permit2 on each token that needs it, then signs one batch permit and sends one `permit` transaction for all of them.
+
+```ts twoslash
+// ---cut-start---
+import type { WalletApi } from "@lelantos-org/sdk";
+declare const wallet: WalletApi;
+// ---cut-end---
+const quote = await wallet.quoteDeposit({ asset: "USDC", amount: "100", feeAsset: "WETH" });
+
+if (quote.allowanceSetupAvailable && wallet.capabilities.depositAllowance) {
+    await wallet.setupDepositAllowance({
+        assets: quote.pulls.map((p) => p.asset.id),
+        onProgress: (p) => {
+            if (p.step === "approving") console.log(`approve ${p.index}/${p.total}`, p.token, p.status);
+            else console.log(p.step, p.status, p.txHash);
+        },
+    });
+}
+```
+
+| Option | Default |
+|---|---|
+| `cap` | `2^160 − 1` base units, which Permit2 treats as unlimited |
+| `expiration` | now + 90 days |
+| `deadline` | signature deadline, now + 30 minutes |
 
 ## The deposit lifecycle
 
-A deposit passes through three states, and only the third makes the note spendable.
-
-| State | What has happened | How you observe it |
+| State | Meaning | Observed with |
 |---|---|---|
-| **mined** | your transaction is on chain; funds are in escrow | `deposit()` resolves |
-| **flushed** | the relayer folded the note into the Merkle tree | `DepositStream.awaitFlush` |
-| **synced** | your wallet holds the note and the tree containing it | `wallet.sync()` |
+| **confirmed** | the transaction is mined; funds are in escrow | `deposit()` resolves |
+| **flushed** | the relayer has added the note to the Merkle tree | `awaitDeposit(result.escrow)` |
+| **synced** | the wallet has the note and the tree containing it | `sync()` |
 
-A note between "mined" and "flushed" is real but unspendable — there is no tree position to prove membership against yet.
+The note is spendable only after it is synced. Between confirmed and flushed it has no tree position, so no proof can be built for it.
 
-## Waiting for the relayer to settle
+## Waiting for the relayer
 
-The relayer folds escrowed deposits in with `flushBatch` and publishes that on an SSE feed. `depositId` from the receipt is the correlation key.
+`awaitDeposit(escrow)` syncs until the note's commitment appears. It resolves a status rather than throwing on timeout: a slow indexer after a mined deposit is not a failure.
 
 ```ts twoslash
 // ---cut-start---
-import { connect } from "@lelantos-org/sdk";
-const wallet = await connect({
-    privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-    network: "anvil",
-    rpcUrl: "http://localhost:8545",
-});
-const relayerUrl = "https://relayer.lelantos.xyz";
-const chainId = 1n;
-const signal = new AbortController().signal;
+import type { WalletApi } from "@lelantos-org/sdk";
+declare const wallet: WalletApi;
 // ---cut-end---
-import { DepositStream } from "@lelantos-org/sdk/relayer";
+const { escrow } = await wallet.deposit({ asset: "USDC", amount: "100" });
 
-const stream = new DepositStream(relayerUrl, chainId);
-const tx = await wallet.deposit({ amount: 1000n });
-if (tx.depositId !== undefined) {
-    const wait = await stream.awaitFlush(tx.depositId, { signal });
-    if (wait.kind === "flushed") console.log("settled in", wait.txHash, wait.blockNumber);
-}
+const seen = await wallet.awaitDeposit(escrow, { timeoutMs: 300_000, pollMs: 3_000 });
+if (seen.status !== "seen") console.warn("not flushed yet:", seen.status);
+```
+
+The default timeout is 120 seconds, polling every 2 seconds. Pass `throwOnTimeout: true` to reject with `FMD_TIMEOUT` instead. A deposit to another `recipient` never appears in this wallet; watch for it from the recipient's side.
+
+### Push notification with `DepositStream`
+
+The relayer also publishes flushes on a server-sent events stream. `DepositStream` from `@lelantos-org/sdk/services` matches them by `depositId`:
+
+```ts twoslash
+// ---cut-start---
+import type { WalletApi } from "@lelantos-org/sdk";
+declare const wallet: WalletApi;
+declare const signal: AbortSignal;
+// ---cut-end---
+import { DepositStream } from "@lelantos-org/sdk/services";
+
+// Open the stream before depositing: the relayer does not replay past events.
+const stream = new DepositStream("https://relayer.lelantos.xyz", 8453n);
+const { escrow } = await wallet.deposit({ asset: "USDC", amount: "100" });
+
+const wait = await stream.awaitFlush(escrow.depositId, { signal });
+if (wait.kind === "flushed") console.log("flushed in", wait.txHash, wait.blockNumber);
 stream.close();
 ```
 
-::: warning Open the stream before depositing
-The relayer does not replay. A fast flush can land before you subscribe — the stream buffers recent events and `awaitFlush` matches against them, which closes that race. The buffer holds the last 64 events; raise `replayBuffer` on a busy chain, where 64 flushes can pass between broadcasting and awaiting.
-:::
+`awaitFlush` never rejects. It resolves `"flushed"`, `"aborted"` (the signal fired), or `"closed"` (the stream closed); the last two mean the flush was not observed, not that the deposit failed. `wait.txHash` is the relayer's `flushBatch` transaction, not the deposit's.
 
-### Outside the browser
+`EventSource` is not available in Node. Pass `eventSourceFactory` in the options; without it the constructor throws `ENVIRONMENT`. On Node, `awaitDeposit` is usually simpler.
 
-`EventSource` is a browser global with no Node equivalent, so pass one. The constructor throws `EnvironmentError` when there is no global to fall back to.
+## Reading the result
 
-```ts twoslash
-// ---cut-start---
-declare const relayerUrl: string;
-declare const chainId: bigint;
-declare class MyEventSourcePolyfill {
-    constructor(src: string);
-    onmessage: ((ev: MessageEvent) => void) | null;
-    onerror: ((ev: Event) => void) | null;
-    close(): void;
-    addEventListener(t: string, l: (ev: MessageEvent) => void): void;
-    removeEventListener(t: string, l: (ev: MessageEvent) => void): void;
-}
-// ---cut-end---
-import { DepositStream } from "@lelantos-org/sdk/relayer";
-
-const stream = new DepositStream(relayerUrl, chainId, {
-    eventSourceFactory: (src) => new MyEventSourcePolyfill(src) as unknown as EventSource,
-});
-```
-
-### `awaitFlush` never rejects
-
-It resolves a `FlushWait`, discriminated on `kind`:
-
-| `kind` | Meaning |
+| Field | Meaning |
 |---|---|
-| `"flushed"` | the settlement event itself — read `wait.txHash` directly |
-| `"aborted"` | your signal fired |
-| `"closed"` | the feed died |
+| `amount` | the new note's value (`Money`) |
+| `fees.protocol`, `fees.relayer` | `Money` in the deposited asset and the fee asset, or `null` when not charged |
+| `pulled` | what the pool pulled per asset, exact base units: the deposited asset first, then the fee asset when pulled separately |
+| `strategy`, `native` | the path taken |
+| `recipient` | owner of the new note |
+| `escrow` | `{ depositId, native, asset, commitment, cancelInputs, cancellableAtBlock }` |
+| `txHash`, `opId` | the deposit transaction and this call's correlation id |
+| `ownCommitments` | the new note's commitment, when `recipient` is this wallet |
 
-The last two mean settlement went **unobserved**, not that the deposit failed. The transaction is already mined either way.
+`escrow` is plain data. Persist it with a bigint-aware serializer to await or cancel after a reload.
 
-::: danger `wait.txHash` is not your deposit
-It is the relayer's `flushBatch` transaction — a different transaction in a different block. So `wait.blockNumber` is when the note entered the tree, not when your deposit was mined. Keep `tx.txHash` from the `DepositResult` if you need to link back to the deposit itself.
-:::
+## Cancelling a deposit
 
-## Reclaiming a deposit the relayer never flushed
-
-Escrowed funds are not stuck. Once `cancelDelay()` blocks have passed, `cancelDeposit` refunds them, and it is permissionless — anyone can submit it, though the refund always goes to the digest-bound payer.
-
-The escrow row stores only `keccak(request)`, so every field the contract once read from storage has to be handed back in and checked against that digest.
+If the relayer does not flush a deposit, the payer can reclaim it once `cancellableAtBlock` is reached. The refund always goes to the original payer.
 
 ```ts twoslash
 // ---cut-start---
-import { connect } from "@lelantos-org/sdk";
-import type { CancelDepositInputs, Hex32 } from "@lelantos-org/sdk";
-import type { ViemChainAdapter } from "@lelantos-org/sdk/chain";
-const wallet = await connect({
-    privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-    network: "anvil",
-    rpcUrl: "http://localhost:8545",
-});
-declare const depositId: bigint;
-// The fee leaf is on the same `DepositEscrowed` log, but is not carried by
-// `DepositEscrowedRecord` — read it off the log, or cache it at deposit time.
-declare const feeLeaf: Pick<CancelDepositInputs, "feeIn" | "feeCm" | "feeCvDep">;
+import type { DepositEscrow, WalletApi } from "@lelantos-org/sdk";
+declare const wallet: WalletApi;
+declare const escrow: DepositEscrow;
 // ---cut-end---
-const chain = wallet.chain as ViemChainAdapter;
+const tip = await wallet.chain.blockNumber?.();
 
-// null once the deposit has been flushed or cancelled.
-const escrow = await chain.getEscrowed(depositId);
-if (escrow) {
-    const delay = await chain.cancelDelay();
-    const record = await chain.fetchDepositEscrowed(depositId);
-    const tip = await chain.blockNumber();
-
-    if (record && tip - record.submittedAt >= delay) {
-        await wallet.cancelDeposit(depositId, {
-            publicIn: record.publicIn,
-            cm: record.cm,
-            cvDep: record.cvDep,
-            publicAssetId: record.publicAssetId,
-            feeBpsAtSubmit: record.feeBpsAtSubmit,
-            payer: record.payer,
-            submittedAt: record.submittedAt,
-            ...feeLeaf,
-        });
-    }
+if (tip !== undefined && tip >= escrow.cancellableAtBlock) {
+    const r = await wallet.cancelDeposit(escrow);
+    r.refunded; // Money in the deposited asset: principal, protocol fee, and a same-asset relayer fee
+    r.feeRefunded; // Money in the fee asset when it was pulled separately, else null
 }
 ```
 
-::: tip Cache the `DepositEscrowed` log at deposit time
-`escrowed(id)` returns the digest and nothing else, so every preimage field has to be recovered from the log. `fetchDepositEscrowed` does that by scanning for it, which is a wide `getLogs` range on a chain that has been running a while. Storing the log alongside your own deposit record turns recovery into a local lookup.
-:::
+`cancelDeposit` accepts the `escrow` a deposit returned, whose `cancelInputs` are used as-is, or `{ depositId, fromBlock? }`, in which case the inputs are rebuilt from the pool's `DepositEscrowed` log. The log is searched from a recent window by default; pass `fromBlock` for an older escrow. Native escrows are routed through `NativeAdapter` automatically.
 
-::: warning `submittedAt` is not always the log's block number
-It is the EVM's `block.number` as the digest saw it. On Arbitrum the EVM reports the L1 height while the log carries the L2 height, so `fetchDepositEscrowed` resolves it explicitly rather than reusing `log.blockNumber`. Do not substitute one for the other.
-:::
+| Failure | Code |
+|---|---|
+| already flushed or cancelled | `INVALID_ARGUMENT`, `argument: "depositId"`, before any transaction |
+| no signing account | `NO_EVM_ACCOUNT` |
+| cancelled before `cancellableAtBlock` | `RPC_FAILED` with `retryable: false` (the pool reverted the call), or `TX_REVERTED` if it was mined |
 
-A native-ETH deposit is escrowed under the `NativeAdapter`'s own name, since the pool is ERC-20 only and would otherwise refund the adapter. Those are cancelled through `cancelDepositNative`, which supplies its own payer.
+::: warning Block numbers on rollups
+`cancellableAtBlock` is in the EVM's `block.number` space. On Arbitrum that is the L1 block number, while logs and the default search window use L2 blocks. When cancelling by `depositId` on a rollup, pass `fromBlock`.
+:::
 
 ## Next
 
 - [Transfer](/guide/transfer)
-- [Fees](/guide/fees) — what a deposit is charged
-- [Syncing](/guide/sync) — before the note is spendable
+- [Fees](/guide/fees)
+- [Syncing](/guide/sync)

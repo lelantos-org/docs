@@ -11,10 +11,20 @@ import { dirname, join } from "node:path";
 
 const require = createRequire(import.meta.url);
 
-/** Installed package root and its manifest. */
+/**
+ * Installed package root and its manifest.
+ *
+ * The root is the `node_modules` location, not its real path. The SDK is linked from `file:../sdk`,
+ * and `require.resolve` follows that symlink out of the project, where tsconfig.typedoc.json's
+ * `include` no longer covers the entry points and TypeDoc finds none.
+ */
 export function sdkPackage() {
-    const manifestPath = require.resolve("@lelantos-org/sdk/package.json");
-    return { dir: dirname(manifestPath), manifest: require("@lelantos-org/sdk/package.json") };
+    const manifest = require("@lelantos-org/sdk/package.json");
+    for (const base of require.resolve.paths("@lelantos-org/sdk") ?? []) {
+        const dir = join(base, "@lelantos-org", "sdk");
+        if (existsSync(join(dir, "package.json"))) return { dir, manifest };
+    }
+    return { dir: dirname(require.resolve("@lelantos-org/sdk/package.json")), manifest };
 }
 
 /**

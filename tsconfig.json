@@ -7,8 +7,8 @@
     // Deliberately NOT a `paths` mapping. The exports map is not uniform —
     // `./errors` resolves to dist/core/errors.d.ts, `./internal` to
     // dist/internal.d.ts — so a wildcard mapping would silently misresolve.
-    // scripts/prepare-sdk.mjs symlinks node_modules/@lelantos-org/sdk -> .sdk
-    // instead, and resolution falls out for free.
+    // The package is installed into node_modules like any dependency, and
+    // resolution falls out for free.
     "compilerOptions": {
         "target": "ES2023",
         "module": "nodenext",

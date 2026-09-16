@@ -1,109 +1,126 @@
 # Syncing
 
-A note is not spendable until the wallet holds three things: the note itself, the Merkle tree that contains it, and the nullifier set that says whether it has already been spent. `sync()` fetches all three.
+A note is spendable only when the wallet has three things locally: the note, the Merkle tree containing it, and the nullifier set showing whether it is spent. `sync()` fetches them.
 
 ```ts twoslash
 // ---cut-start---
-import { connect } from "@lelantos-org/sdk";
-const wallet = await connect({
-    privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-    network: "anvil",
-    rpcUrl: "http://localhost:8545",
-});
+import type { WalletApi } from "@lelantos-org/sdk";
+declare const wallet: WalletApi;
 // ---cut-end---
-const r = await wallet.sync({ limit: 1000 });
+const report = await wallet.sync();
 //    ^?
 ```
 
-`sync()` pulls encrypted notes, trial-decrypts each with the wallet's `ivk`, and persists the hits to the `NoteStore`. Notes, tree, and spent-nullifier set are fetched in parallel, then the local notes are reconciled against the nullifiers.
+`sync()` trial-decrypts the encrypted note feed with the wallet's viewing key, stores matches in the note store, pages the nullifier and commitment feeds, and marks notes whose nullifiers appear in the spent set. A second call while one is running queues behind it.
 
-Split the call when you only need one part:
+The tree and the nullifier set are downloaded in full, because asking a server for a specific path or nullifier would reveal which notes the wallet owns. To avoid downloading them on every start, [persist them](#persisting-the-tree-and-spent-set).
 
-| Call | When to use it |
-|---|---|
-| `syncNotes()` | enough for a balance display |
-| `syncTree()` | **required before spending** — the proof is against a tree root |
-| `syncNullifiers()` | refreshes the local spent set |
+## Scope
 
-`syncNullifiers()` is on the concrete `Wallet` class rather than the `WalletApi` interface; code typed against `WalletApi` reaches it through `sync()`.
+| `scope` | Fetches | Use when |
+|---|---|---|
+| `"full"` (default on a spending wallet) | notes, spent set, and Merkle tree | before spending, or to warm the tree |
+| `"notes"` | notes and spent set | displaying balances; a spend syncs the tree itself |
 
-::: tip Why the spent set is mirrored in full
-Asking a server "is nullifier N spent?" would name a note you own. The whole set is mirrored instead. Persist both mirrors to avoid re-downloading them on every page load — see [Persisting the tree and spent set](#persisting-the-tree-and-spent-set).
-:::
-
-## Reading progress, and stopping early
-
-`onProgress` reports the phase and running counts; `signal` stops paging at the next page boundary. Aborting is safe: whatever was scanned before the abort is checkpointed, so the next sync resumes from there rather than rescanning.
+A watch-only wallet always syncs `"notes"`: it never builds a proof, so it has no tree. An incoming-viewing-key wallet also skips the spent set (`report.nullifiers` is absent).
 
 ```ts twoslash
 // ---cut-start---
-import { connect } from "@lelantos-org/sdk";
-const wallet = await connect({
-    privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-    network: "anvil",
-    rpcUrl: "http://localhost:8545",
-});
+import type { WalletApi } from "@lelantos-org/sdk";
+declare const wallet: WalletApi;
 // ---cut-end---
-const ac = new AbortController();
-setTimeout(() => ac.abort(), 30_000); // give up after 30s, keeping progress
+await wallet.sync({ scope: "notes" }); // cheap refresh for a balance screen
+await wallet.sync({ reload: true }); // re-read the note store first, after another tab wrote to it
+```
 
-const result = await wallet.sync({
-    limit: 1000,
-    signal: ac.signal,
-    onProgress: (p) => console.log(p.phase, p.fetched, p.hits),
+## Progress and cancellation
+
+`onProgress` reports each stream separately. `signal` stops paging at the next page boundary; progress made before the abort is saved, the call rejects with `signal.reason`, and the next sync resumes.
+
+```ts twoslash
+// ---cut-start---
+import type { WalletApi } from "@lelantos-org/sdk";
+declare const wallet: WalletApi;
+// ---cut-end---
+const report = await wallet.sync({
+    signal: AbortSignal.timeout(30_000),
+    pageSize: 1000,
+    onProgress: (p) => {
+        if (p.stream === "notes") console.log("notes", p.phase, p.fetched, p.hits);
+        else console.log(p.stream, "chunk", p.chunkId, p.syncedCount);
+    },
 });
 
-if (result.stoppedBy !== "exhausted") {
-    // "aborted" | "pageCap" | "cursorStalled" — the feed did not run to the end.
-    console.warn("sync did not complete:", result.stoppedBy);
+if (report.notes.stoppedBy !== "exhausted") {
+    console.warn("the note feed did not run to its end:", report.notes.stoppedBy);
 }
 ```
 
-`stoppedBy: "exhausted"` is the only healthy outcome. The others are reported rather than logged and forgotten, so a caller can distinguish "caught up" from "gave up".
+| `SyncReport` field | Contents |
+|---|---|
+| `notes` | `fetched`, `hits`, `added`, `skipped`, `pages`, `cursor`, `stoppedBy` |
+| `tree` | tree chunk summary; present for `scope: "full"` |
+| `nullifiers` | spent-set chunk summary; absent without a full viewing key |
+| `syncedAt` | when this sync finished |
 
-## Waiting for your own transaction to appear
+| `notes.stoppedBy` | Meaning |
+|---|---|
+| `"exhausted"` | the feed was read to the end; the wallet is up to date |
+| `"cursorStalled"` | the feed returned a page without advancing the cursor; the note source is misbehaving |
+| `"pageCap"` | the per-sync page limit was reached; the note source is misbehaving |
 
-After a successful broadcast the indexer still has to pick the transaction up. `awaitCommitments` polls until the commitments you care about are in the local store, and returns a status rather than throwing — a slow indexer is not a failed transaction.
+A failed sync rejects with its error and records it in `state().sync.lastError` until the next success. See [Balances and state](/guide/state).
+
+## Waiting for a transaction to be indexed
+
+After a transaction lands, the indexer must process it before `sync()` returns its notes. `awaitCommitments` syncs (scope `"notes"`) until the given commitments are in the local store. It resolves a status instead of throwing on timeout.
 
 ```ts twoslash
 // ---cut-start---
-import { connect } from "@lelantos-org/sdk";
-const wallet = await connect({
-    privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-    network: "anvil",
-    rpcUrl: "http://localhost:8545",
-});
-const to = wallet.address;
+import type { WalletApi } from "@lelantos-org/sdk";
+declare const wallet: WalletApi;
+declare const recipient: string;
 // ---cut-end---
-const tx = await wallet.transfer({ to, amount: 100n });
+const tx = await wallet.transfer({ asset: "USDC", amount: "10", recipient });
 
 // Only this wallet's own outputs will ever land in its own store.
-const seen = await wallet.awaitCommitments(tx.ownCommitments, { pollMs: 2000, maxAttempts: 30 });
+const seen = await wallet.awaitCommitments(tx.ownCommitments, { timeoutMs: 60_000, pollMs: 2_000 });
 
-if (seen.status !== "seen") console.warn("indexer behind:", seen.missing.length, "missing");
+if (seen.status !== "seen") console.warn(seen.status, seen.missing.length, "missing");
 ```
 
-## Polling cheaply
+| Option | Default |
+|---|---|
+| `timeoutMs` | 120,000 ms |
+| `pollMs` | 2,000 ms |
+| `pageSize` | the feed's page size |
+| `throwOnTimeout` | `false`; `true` rejects with `FMD_TIMEOUT` |
+| `signal` | resolves `"aborted"` when fired |
 
-`sync()` is expensive: it pages the note feed, folds the tree, and mirrors the spent set. `FmdClient.fetchHead()` is the cheap question that says whether any of that is worth doing — two indexed `MAX()`s, uncached on both sides, small enough to poll every few seconds.
+Pass `ownCommitments`: only outputs the wallet can decrypt ever reach its store. For a deposit, `awaitDeposit(result.escrow)` is the same call on the escrow's commitment.
+
+## Checking for new data
+
+`FmdClient.fetchHead()` from `@lelantos-org/sdk/services` returns the indexer's latest positions in one inexpensive request. Poll it and sync only when the head has advanced.
 
 ```ts twoslash
-// ---cut-start---
-const fmdUrl = "https://fmd.lelantos.xyz";
-const chainId = 1n;
-// ---cut-end---
-import { FmdClient } from "@lelantos-org/sdk/fmd-server";
+import { FmdClient } from "@lelantos-org/sdk/services";
 
-const fmd = new FmdClient(fmdUrl, chainId);
+const fmd = new FmdClient("https://fmd.lelantos.xyz", 8453n);
 const head = await fmd.fetchHead();
 //    ^?
 ```
 
 ## Persisting the tree and spent set
 
-Both mirrors are rebuilt from scratch on every fresh wallet, which is wasted bandwidth in any application that outlives a single process. Pass a `treePersistence` and a `nullifierPersistence`: the SDK restores state at startup and saves after each sync.
+By default the tree and nullifier set are kept in memory and rebuilt on every start. Pass `storage.tree` and `storage.nullifiers` to restore them at startup and save them after each sync.
 
-Each is a small interface over any storage you like: `load` and `save`, plus a `clear` on `TreePersistence` so a tree that has gone wrong can be discarded and rebuilt. The spent set has no equivalent — it only ever grows, so there is nothing to discard.
+| Interface | Methods |
+|---|---|
+| `TreePersistence` | `load`, `save`, `clear` |
+| `NullifierPersistence` | `load`, `save` |
+
+`clear` lets the wallet discard a corrupt tree and rebuild it. The nullifier set only grows, so it has no `clear`.
 
 ```ts twoslash
 // ---cut-start---
@@ -116,7 +133,7 @@ import type {
     NullifierStoreState,
     TreePersistence,
     TreeStoreState,
-} from "@lelantos-org/sdk";
+} from "@lelantos-org/sdk/advanced";
 
 // bigint is not JSON-serialisable, so encode explicitly rather than relying
 // on a replacer somewhere up the call stack.
@@ -124,7 +141,7 @@ const enc = (v: unknown) => JSON.stringify(v, (_k, x) => (typeof x === "bigint" 
 const dec = (s: string) =>
     JSON.parse(s, (_k, x) => (typeof x === "string" && /^\d+n$/.test(x) ? BigInt(x.slice(0, -1)) : x));
 
-class IdbTreePersistence implements TreePersistence {
+export class IdbTreePersistence implements TreePersistence {
     async load(): Promise<TreeStoreState | null> {
         const raw = await idbGet("lelantos-tree");
         return raw ? (dec(raw) as TreeStoreState) : null;
@@ -132,16 +149,14 @@ class IdbTreePersistence implements TreePersistence {
     async save(state: TreeStoreState): Promise<void> {
         await idbSet("lelantos-tree", enc(state));
     }
-    // Required, not optional. `TreeStore.reset()` repairs a bad tree by
-    // discarding it and rebuilding; a backend that cannot forget would restore
-    // the discarded tree on the next `load()`, leaving the wallet to pay the
-    // rebuild on every spend and only ever log a warning.
+    // Required. The wallet repairs a bad tree by discarding and rebuilding it; a backend
+    // that cannot forget would restore the discarded tree on the next `load()`.
     async clear(): Promise<void> {
         await idbDel("lelantos-tree");
     }
 }
 
-class IdbNullifierPersistence implements NullifierPersistence {
+export class IdbNullifierPersistence implements NullifierPersistence {
     async load(): Promise<NullifierStoreState | null> {
         const raw = await idbGet("lelantos-nullifiers");
         return raw ? (dec(raw) as NullifierStoreState) : null;
@@ -156,94 +171,100 @@ Pass them to `connect()`:
 
 ```ts twoslash
 // ---cut-start---
-import { connect, type NullifierPersistence, type TreePersistence } from "@lelantos-org/sdk";
+import type { NullifierPersistence, TreePersistence } from "@lelantos-org/sdk/advanced";
 declare const IdbTreePersistence: new () => TreePersistence;
 declare const IdbNullifierPersistence: new () => NullifierPersistence;
+declare const privateKey: `0x${string}`;
+declare const rpcUrl: string;
 // ---cut-end---
+import { connect } from "@lelantos-org/sdk";
+
 const wallet = await connect({
-    privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-    network: "anvil",
-    rpcUrl: "http://localhost:8545",
-    treePersistence: new IdbTreePersistence(),
-    nullifierPersistence: new IdbNullifierPersistence(),
+    network: "base",
+    rpcUrl,
+    privateKey,
+    storage: {
+        tree: new IdbTreePersistence(),
+        nullifiers: new IdbNullifierPersistence(),
+    },
 });
 ```
 
 ::: tip Persist `nodes` as well as `leaves`
-`TreeStoreState.nodes` holds the memoized internal Merkle nodes. A state saved without them still restores — it just pays a full rebuild, roughly 350K hashes, on the first `root()` or `getPath()` after startup. Serialising whatever `save` was handed keeps them.
+`TreeStoreState.nodes` contains cached internal Merkle nodes. A state saved without them still loads, but the first proof rebuilds them (about 350K hashes). Serialize the full state passed to `save`.
 :::
 
-`treeStore` and `nullifierStore` replace the stores outright and are the escape hatch for a shared or pre-seeded cache. For persistence alone, use the `*Persistence` options — they are ignored when the corresponding store is supplied directly.
-
-::: warning Use the same `treeDepth` everywhere
-A local tree built at a different depth than the circuit expects produces paths and a root of that depth. Nothing errors — the proof simply fails to verify on chain. `connect()` takes the depth from the network preset, so this only bites when hand-building a `WalletConfig`.
-:::
+Pre-built `TreeStore` and `NullifierStore` instances, for example to share a pre-seeded cache, are `createWallet` options in `@lelantos-org/sdk/advanced`. When either is set, the corresponding persistence option is ignored.
 
 ## Sync strategies
 
-Two strategies, set through `WalletConfig.syncStrategy`. The choice selects the default `NoteSource`, and is ignored when `noteSource` is set directly.
+`syncStrategy` selects how the wallet finds its notes.
 
-| Strategy | Endpoint | FMD runs | Anonymity | Bandwidth |
+| Strategy | Endpoint | Detection | Privacy | Bandwidth |
 |---|---|---|---|---|
-| `{ kind: "full" }` (default) | `/v1/notes` (firehose) | skipped | **maximum** — no detection key leaves the wallet | every encrypted note |
-| `{ kind: "matches", token }` | `/v1/matches` | server-side, via a registered subscription | reduced — the server learns the FMD-positive subset | only the false-positive subset |
+| `{ kind: "full" }` (default) | `/v1/notes` | local trial decryption | no key material leaves the wallet | every encrypted note |
+| `{ kind: "matches", token }` | `/v1/matches` | server-side, via a registered subscription | the server learns which notes match | matches and false positives only |
 
-::: danger Delegating detection is one-way and permanent
-The scalars you POST are `x_i = dk + h_i` over a publicly computable `h_i`, so **the server recovers your root FMD secret `dk`** and keeps the ability to detect your incoming notes at any γ, forever.
+::: danger Delegating detection cannot be revoked
+The registered detection scalars are `x_i = dk + h_i`, where `h_i` is public. The server can therefore recover the root FMD secret `dk` and detect the wallet's incoming notes permanently, at any false-positive rate.
 
-Rotating the subscription token does not revoke it. Only a new `nsk` does. This is why `full` is the default.
+Rotating the subscription token does not revoke this. Only a new `nsk` does.
 :::
 
 ### Registering a subscription
 
 ```ts twoslash
 // ---cut-start---
-import { connect } from "@lelantos-org/sdk";
-import type { SpendingKey, ViewingKey } from "@lelantos-org/sdk/keys";
-declare const pk: `0x${string}`;
+import type { WalletApi } from "@lelantos-org/sdk";
+declare const wallet: WalletApi;
+declare const privateKey: `0x${string}`;
 declare const rpcUrl: string;
-declare const fmdUrl: string;
-declare const chainId: bigint;
-declare const keys: SpendingKey;
-declare const viewingKey: ViewingKey;
 declare const myAppConfig: { subscriptionEpoch?: number };
 // ---cut-end---
-import { detectionKey } from "@lelantos-org/sdk";
-import { cryptoContext, deriveSubscriptionToken } from "@lelantos-org/sdk/crypto";
-import { FMD_SENDER_GAMMA, detectionKeyToHex, subscriptionTokenToHex } from "@lelantos-org/sdk/fmd";
-import { FmdClient } from "@lelantos-org/sdk/fmd-server";
+import { connect, decodeViewingKey } from "@lelantos-org/sdk";
+import {
+    cryptoContext,
+    deriveSubscriptionToken,
+    detectionKey,
+    detectionKeyToHex,
+    FMD_DEFAULT_GAMMA,
+    subscriptionTokenToHex,
+} from "@lelantos-org/sdk/primitives";
+import { FmdClient } from "@lelantos-org/sdk/services";
+
+const { P, J } = await cryptoContext();
+const viewingKey = decodeViewingKey(P, J, wallet.keys.viewingKey);
 
 // `epoch` is 0 until you rotate.
-const { P } = await cryptoContext();
 const epoch = BigInt(myAppConfig.subscriptionEpoch ?? 0);
-const tokenHex = subscriptionTokenToHex(deriveSubscriptionToken(P, keys.ivk, epoch));
-const detectionKeyHex = detectionKeyToHex(await detectionKey(viewingKey, FMD_SENDER_GAMMA));
+const tokenHex = subscriptionTokenToHex(deriveSubscriptionToken(P, viewingKey.ivk, epoch));
+const detectionKeyHex = detectionKeyToHex(await detectionKey(viewingKey, FMD_DEFAULT_GAMMA));
 
-const fmd = new FmdClient(fmdUrl, chainId);
-await fmd.createSubscription({ detectionKeyHex, gamma: FMD_SENDER_GAMMA, tokenHex });
+const fmd = new FmdClient("https://fmd.lelantos.xyz", 8453n);
+await fmd.createSubscription({ detectionKeyHex, gamma: FMD_DEFAULT_GAMMA, tokenHex });
 
-const matches = await connect({
-    privateKey: pk,
-    network: "anvil",
+const matching = await connect({
+    network: "base",
     rpcUrl,
+    privateKey,
     syncStrategy: { kind: "matches", token: tokenHex },
 });
 ```
 
-::: warning Derive the token from `ivk`, never from `dk` or the detection key
-The γ detection scalars are `x_i = dk + h_i` over an `h_i` anyone can compute from the public `ck`, so the server you hand them to can invert back to `dk`. A token built from either would be forgeable by that server.
+::: warning Derive the token from `ivk`
+Do not derive the token from `dk` or the detection key. The server receiving the detection scalars can recover `dk`, and could forge a token derived from it.
 :::
 
-At the default epoch there is nothing extra to persist: `deriveSubscriptionToken(P, ivk)` regenerates the token from a secret the wallet already holds, and re-registering re-attaches to the same subscription (`created: false`) rather than duplicating it and re-running the backfill.
+At epoch 0 nothing needs to be stored: `deriveSubscriptionToken(P, ivk)` regenerates the same token, and registering again returns the existing subscription (`created: false`).
 
-## Rotating a subscription token
+### Rotating the token
 
-Pass a new `epoch` to rotate. The token is a bearer credential sent on every poll and is stable across sessions, machines, and IPs — a pseudonymous identifier for the wallet. It travels in an `Authorization` header, which keeps it out of proxy and browser-history logs, but a credential with no rotation path has no recovery from a leak by any other route.
+The token is a bearer credential sent in the `Authorization` header of every poll. It is stable across sessions and devices, so it identifies the wallet to the server. Rotate it by passing a new `epoch`.
 
-Once you rotate, **the epoch must be stored** — it is no longer derivable.
+After rotating, **store the epoch**. It cannot be derived.
 
 ## Next
 
+- [Balances and state](/guide/state)
 - [Note management](/guide/notes)
-- [Custom storage](/guide/storage) — persisting the notes themselves
-- [Concepts](/guide/concepts) — what FMD is doing
+- [Watch-only wallets](/guide/watch-only)

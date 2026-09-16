@@ -14,16 +14,24 @@ export const guideSidebar: DefaultTheme.SidebarItem[] = [
         items: [
             { text: "Installation", link: "/guide/installation" },
             { text: "Quickstart", link: "/guide/quickstart" },
-            { text: "Concepts", link: "/guide/concepts" },
-            { text: "How it fits together", link: "/guide/system" },
+            { text: "Migrating from 0.38", link: "/guide/migration-0.38-to-0.39" },
         ],
     },
     {
-        text: "Core usage",
+        text: "Concepts",
         items: [
-            { text: "Creating a wallet", link: "/guide/wallet" },
-            { text: "Amounts", link: "/guide/amounts" },
+            { text: "Concepts", link: "/guide/concepts" },
+            { text: "How it fits together", link: "/guide/system" },
+            { text: "Glossary", link: "/guide/glossary" },
+        ],
+    },
+    {
+        text: "Wallet",
+        items: [
+            { text: "Connecting a wallet", link: "/guide/wallet" },
+            { text: "Networks", link: "/guide/networks" },
             { text: "Addresses", link: "/guide/addresses" },
+            { text: "Amounts and assets", link: "/guide/amounts" },
         ],
     },
     {
@@ -32,40 +40,51 @@ export const guideSidebar: DefaultTheme.SidebarItem[] = [
             { text: "Deposit", link: "/guide/deposit" },
             { text: "Transfer", link: "/guide/transfer" },
             { text: "Withdraw", link: "/guide/withdraw" },
-            { text: "Denominations", link: "/guide/denominations" },
             { text: "Swap", link: "/guide/swap" },
+            { text: "Fees", link: "/guide/fees" },
         ],
     },
     {
         text: "Notes & sync",
         items: [
             { text: "Syncing", link: "/guide/sync" },
+            { text: "Balances and state", link: "/guide/state" },
             { text: "Note management", link: "/guide/notes" },
             { text: "Watch-only wallets", link: "/guide/watch-only" },
         ],
     },
     {
-        text: "Extending",
+        text: "Privacy",
         items: [
-            { text: "Custom storage", link: "/guide/storage" },
-            { text: "Chain adapters", link: "/guide/chain-adapter" },
-            { text: "Pluggable interfaces", link: "/guide/interfaces" },
-            { text: "Networks", link: "/guide/networks" },
+            { text: "Denominations", link: "/guide/denominations" },
+            { text: "Privacy checklist", link: "/guide/privacy" },
         ],
     },
     {
-        text: "Browser",
-        items: [{ text: "Browser usage", link: "/guide/browser" }],
+        text: "Integration",
+        items: [
+            { text: "Package subpaths", link: "/guide/subpaths" },
+            { text: "Browser usage", link: "/guide/browser" },
+            { text: "Node usage", link: "/guide/node" },
+            { text: "Custom storage", link: "/guide/storage" },
+            { text: "Pluggable interfaces", link: "/guide/interfaces" },
+            { text: "Chain adapters", link: "/guide/chain-adapter" },
+        ],
     },
     {
-        text: "Advanced",
+        text: "Operations",
         items: [
-            { text: "Fees", link: "/guide/fees" },
-            { text: "Benchmarks", link: "/guide/benchmarks" },
-            { text: "Low-level primitives", link: "/guide/primitives" },
-            { text: "Logging", link: "/guide/logging" },
             { text: "Errors", link: "/guide/errors" },
+            { text: "Logging", link: "/guide/logging" },
+            { text: "Troubleshooting", link: "/guide/troubleshooting" },
+            { text: "Benchmarks", link: "/guide/benchmarks" },
+        ],
+    },
+    {
+        text: "Internals",
+        items: [
             { text: "Architecture", link: "/guide/architecture" },
+            { text: "Building transactions manually", link: "/guide/primitives" },
         ],
     },
 ];

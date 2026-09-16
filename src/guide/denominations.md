@@ -1,68 +1,59 @@
 # Denominations
 
-A withdrawal's `publicOut` is public, so the naive round trip publishes the same integer at both ends — deposit 3,417 units, withdraw 3,417 units — and links them. Withdrawing from a fixed **ladder** of denominations publishes a value many other users also publish.
+A withdrawal publishes its gross amount, `publicOut`. If a user deposits 3,417 units and later withdraws 3,417 units, the two public amounts link the transactions. Withdrawing a value from a fixed **ladder** of denominations publishes an amount that many other withdrawals share.
 
-A ladder is a list of fixed circuit-unit amounts, ascending. It is a table of integers rather than a conversion from human amounts: a pool-managed yield index moves what a denomination is *worth*, while the denomination itself never changes.
+A ladder is an ascending list of fixed circuit-unit amounts. It does not change with the yield index; only the token value of each denomination does.
 
-## The leak this closes
+## What the ladder prevents
 
-Every round trip publishes two values: a deposit's `publicIn`, attributed to the payer, and a withdrawal's `publicOut`, attributed to the recipient. Nothing between them is public — an internal transfer carries no amount.
+A round trip publishes two amounts: the deposit's `publicIn`, attributed to the payer, and the withdrawal's `publicOut`, attributed to the recipient. Internal transfers publish no amount.
 
-A distinctive amount links those two ends, and a yield-bearing pool makes almost every amount distinctive. Circuit units are normalized, so a round *underlying* amount divides by a continuously moving index: at 5% APY a 1000-USDC deposit drifts about 1.6 units per second, and two users collide only by depositing the identical amount in the same block. A later withdrawal of that integer matches its deposit exactly, revealing the link, the holding period and the realised yield.
+On a yield-bearing asset almost every amount is distinctive. Circuit units are normalized by a moving index, so a round token amount converts to a different unit count every block. A withdrawal of the same integer as a deposit links the two, and reveals the holding period and the yield earned.
 
-A denomination is a fixed integer, so it does not move with the index. Its anonymity set is every withdrawal of that size in the pool's history, with no partitioning by time.
+A denomination is a fixed integer, so its anonymity set is every withdrawal of that size in the pool's history.
 
-::: danger Never derive a denomination at runtime
-`n = human * RAY / (scale * index)` moves as the index moves, reproducing the fingerprint the ladder exists to remove. The ladder is a table of integers; the human labels are display only. Once yield accrues, `1_000_000_000` reads as ~1050 USDC rather than 1000, and that is correct.
+::: danger Do not compute denominations at runtime
+A denomination computed from a human amount (`n = human * RAY / (scale * index)`) changes with the index and produces the distinctive amounts the ladder removes. Use the ladder's integers. Their human labels are for display: once yield accrues, `1_000_000_000` may display as ~1050 USDC instead of 1000.
 :::
 
-Only `publicOut` is constrained. Deposits and internal transfers may carry any value: a deposit's amount is public and attributed to its payer regardless of what the wallet does, and a transfer publishes no amount at all.
+Only `publicOut` needs a denomination. Deposit amounts are public and attributed to the payer regardless, and transfers publish no amount.
 
-## What every asset gets
+## The default ladder
 
-A `{1, 2, 5} × 10^e` series in circuit units, derived from the asset's own `scale` and ERC-20 `decimals`. Steps of 2× and 2.5× put any amount within ~20% using two or three pieces, in a shape users already recognise.
+Every asset gets a `{1, 2, 5} × 10^e` series in circuit units, derived from its `scale` and `decimals`. No per-token configuration is needed.
 
-There is no table and nothing to configure per token, because a circuit unit is already roughly value-normalised across assets: an operator picks `scale` to make one unit a sensible granularity, which leaves USDC at ~$0.000001 per unit and WETH at ~$0.00003 — about 30× apart, against ~3000× for one whole token. So one window in circuit units serves both, and it is the same window the two hand-tuned ladders it replaced already described.
+| Property | Behaviour |
+|---|---|
+| spacing | steps of 2× and 2.5×; any amount is within ~20% of a sum of two or three denominations |
+| lower bound | 1e5 circuit units (0.001 WETH, $0.10 USDC at typical scales); bounds leftover dust |
+| upper bound | a single cap in circuit units for all assets; the highest denominations are rarely used, so their anonymity sets are small |
+| `decimals` | used only to move the range for assets registered at an unusual `scale` |
 
-The floor bounds leftover dust: at 1e5 circuit units it is 0.001 WETH, exactly where the curated WETH ladder put it, and $0.10 for USDC.
-
-The cap is the looser end, and the one thing the derivation cannot get right for every asset. Nothing available correlates with value — WETH and a stablecoin can be identical in `scale` and `decimals` and 3000× apart in price — so a single cap in circuit units is generous for the asset worth most per unit. The top decades exist but are close to unpopulated, and an anonymity set is actual, not potential: treat a rung near the top of the range as rarer than one in the middle. Making the cap track value means publishing it per asset from the pool operator, who is the only party that knows.
-
-`decimals` is consulted only to keep the window where the asset can express it. An asset scaled far from the usual granularity — an 18-decimal token registered at `scale = 1` — gets the window moved to where it actually lives rather than one describing amounts nobody could withdraw.
+The ladder is resolved when the `AssetInfo` is built and is available as `asset.ladder`.
 
 ```ts twoslash
 // ---cut-start---
-import { connect } from "@lelantos-org/sdk";
-const wallet = await connect({
-    privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-    network: "anvil",
-    rpcUrl: "http://localhost:8545",
-});
+import type { WalletApi } from "@lelantos-org/sdk";
+declare const wallet: WalletApi;
 // ---cut-end---
-import { denominations, formatAmount, isDenominated } from "@lelantos-org/sdk";
+import { circuitAmount, formatAmount } from "@lelantos-org/sdk";
 
 const usdc = await wallet.asset("USDC");
 
-isDenominated(usdc); // does this asset have a ladder at all?
-for (const d of denominations(usdc)) {
-    console.log(formatAmount(d, usdc, { symbol: true })); // "10 USDC", "20 USDC", …
+usdc.ladder.length > 0; // does this asset have a ladder at all?
+for (const d of usdc.ladder) {
+    console.log(formatAmount(circuitAmount(d), usdc, { symbol: true })); // "10 USDC", "20 USDC", …
 }
 ```
 
-The ladder is resolved once, when the `AssetInfo` is built, and travels with it as `asset.ladder`, so no code downstream needs to know the policy.
+## Building a picker
 
-## Offering a picker
-
-`wallet.withdrawDenominations()` labels each denomination with its current worth and what the recipient would receive after the protocol fee. Both labels move with the yield index, so recompute rather than cache them.
+`wallet.withdrawDenominations()` returns each denomination with its current value and the net amount after the protocol fee. Both labels change with the yield index; recompute them instead of caching.
 
 ```ts twoslash
 // ---cut-start---
-import { connect } from "@lelantos-org/sdk";
-const wallet = await connect({
-    privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-    network: "anvil",
-    rpcUrl: "http://localhost:8545",
-});
+import type { WalletApi } from "@lelantos-org/sdk";
+declare const wallet: WalletApi;
 // ---cut-end---
 for (const choice of await wallet.withdrawDenominations("USDC")) {
     console.log(choice.label, "→", choice.netLabel);
@@ -70,142 +61,127 @@ for (const choice of await wallet.withdrawDenominations("USDC")) {
 }
 ```
 
-For an amount the user typed, `previewWithdraw` reports whether it is on the ladder and names the closest one when it is not. `onLadder: false` is not an error and nothing rejects it, but an off-ladder `publicOut` is a near-unique public integer — surface it.
+A `net` withdrawal is sized to its recipient and is almost never a denomination; offer denominations as `gross` amounts. For a typed amount, `previewWithdraw` reports whether it is a denomination and suggests the nearest one. An off-ladder amount is accepted, but it publishes a distinctive value; show this to the user.
 
 ```ts twoslash
 // ---cut-start---
-import { connect } from "@lelantos-org/sdk";
-const wallet = await connect({
-    privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-    network: "anvil",
-    rpcUrl: "http://localhost:8545",
-});
+import type { WalletApi } from "@lelantos-org/sdk";
+declare const wallet: WalletApi;
 // ---cut-end---
-const p = await wallet.previewWithdraw({ asset: "USDC", amount: "1234" });
+const p = await wallet.previewWithdraw({ asset: "USDC", gross: "1234" });
 
 p.hasLadder; // false → the asset has none, and `onLadder` means nothing
 p.onLadder; // false → this amount is not one of them
 p.suggestion; // the nearest denomination, ties going to the smaller
 ```
 
-## Change lands on the ladder too
-
-A denomination you cannot assemble is unusable, so change is decomposed onto the ladder greedily, largest first, with the remainder in one final note. Splitting evenly instead would produce notes that cannot be withdrawn as they stand, on every spend, and they compound.
-
-```
-decompose(4900n, ladder, 4) → pieces [2000, 2000, 500], dust 400
-```
-
-The dust is transient: an internal transfer publishes no amount, so a later self-spend re-splits it at no privacy cost. `redenominate` drives that self-spend in a loop.
+The following example warns on an off-ladder amount and withdraws what the user entered:
 
 ```ts twoslash
 // ---cut-start---
-import { connect } from "@lelantos-org/sdk";
-const wallet = await connect({
-    privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-    network: "anvil",
-    rpcUrl: "http://localhost:8545",
-});
-// ---cut-end---
-const rounds = await wallet.redenominate("USDC", { maxRounds: 4 });
-```
-
-Each round places `nOut - 1` ladder pieces and carries one residual, so the residual shrinks until it falls below the lowest denomination and no decomposition can place it. It is idempotent and safe to schedule. A round that cannot find cover ends the loop rather than throwing, since a partly tidied note set is strictly better than the original. The return value is the number of rounds run; zero means the asset has no ladder, or nothing was off it.
-
-## Selecting for zero change
-
-`DenominationCoinSelector` wraps SFRT and prefers a cover that pays the target exactly. An exact cover produces no change note — nothing to place on the ladder, nothing to re-split later.
-
-```ts twoslash
-// ---cut-start---
-import { connect } from "@lelantos-org/sdk";
-// ---cut-end---
-import { DenominationCoinSelector } from "@lelantos-org/sdk";
-
-await connect({
-    privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-    network: "anvil",
-    rpcUrl: "http://localhost:8545",
-    selector: new DenominationCoinSelector(),
-});
-```
-
-SFRT's dust thresholds, spend cooldown, reservations and consolidate-first fallback are unchanged; the wrapper intercepts only the exact-cover case. The default selector remains plain SFRT.
-
-## What the ladder does not hide
-
-The ladder removes one linkage — the amount. The rest of a withdrawal is as visible as it was before.
-
-| Still public | Consequence |
-|---|---|
-| the recipient address | withdrawals to one address are linked to each other, and to any identity already attached to it |
-| the number and timing of exits | a large balance leaves as several pieces; spread them across blocks and recipients |
-| deposit amounts | public and attributed to the payer, so a rare deposit size still narrows the candidate set |
-| submission metadata | timing and network origin reach the relayer unless routed around — `fetchImpl` is the seam |
-
-**The net delivered adds nothing back.** The recipient receives the denomination minus `withdrawBps`, computed on chain from the asset's rate, `scale` and index, so every user withdrawing that denomination at that moment gets the same figure. Rounding the net to a tidy number puts the uniqueness back into `publicOut`.
-
-**Off-ladder amounts mark the wallet, not just the transaction.** A `publicOut` nobody else publishes is linkable to the deposit that funded it, and identifies the wallet as non-conforming. `previewWithdraw` reports `onLadder` so a UI can surface that rather than swallow it.
-
-**An anonymity set is actual, not potential.** It is however many users withdrew that denomination, not how many could have. The extremes of a ladder, and any thinly used pool, offer less cover than the middle of a busy one.
-
-Which notes a spend consumes is a separate fingerprint — the reason the default selector is SFRT rather than largest-first, and why the spend cooldown exists (see [Note management](/guide/notes)). A detection delegate additionally learns the FMD match set (see [Syncing](/guide/sync)).
-
-### Surfacing it in a UI
-
-Show what will be published, and offer the conforming amount rather than rewriting the user's.
-
-```ts twoslash
-// ---cut-start---
-import { connect } from "@lelantos-org/sdk";
-const wallet = await connect({
-    privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-    network: "anvil",
-    rpcUrl: "http://localhost:8545",
-});
-const to = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266" as const;
+import type { WalletApi } from "@lelantos-org/sdk";
+declare const wallet: WalletApi;
+const recipient = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
 declare const entered: string;
 // ---cut-end---
 import { formatAmount } from "@lelantos-org/sdk";
 
 const usdc = await wallet.asset("USDC");
-const p = await wallet.previewWithdraw({ asset: usdc.id, amount: entered });
+const p = await wallet.previewWithdraw({ asset: usdc.id, gross: entered });
 
 if (p.hasLadder && !p.onLadder && p.suggestion !== undefined) {
-    // Offer the nearest denomination — ties go to the smaller, so the
-    // suggestion never costs more than was asked for.
+    // Offer the nearest denomination. It can be above or below what was typed;
+    // ties go to the smaller.
     console.warn(`off-ladder; nearest denomination is ${formatAmount(p.suggestion, usdc)}`);
 }
 
-await wallet.withdraw({ to, asset: usdc.id, amount: p.publicOut });
+await wallet.withdraw({ recipient, asset: usdc.id, gross: p.publicOut });
 ```
 
-Silently substituting the suggestion is worse than a linkable withdrawal: only the user knows whether a smaller amount still covers what they owe.
+Offer the suggestion; do not substitute it automatically. Only the user knows whether a smaller amount is acceptable.
 
-## Choosing a different policy
+## Change lands on the ladder too
 
-`denominations` on `connect()` and `WalletConfig` decides whether the wallet uses ladders at all.
+Change is split into ladder denominations, largest first, with any remainder in one final note:
+
+```
+decompose(4900n, ladder, 4) → pieces [2000, 2000, 500], dust 400
+```
+
+The remainder can be re-split later by a self-transfer, which publishes no amount. `redenominate` runs those self-transfers in a loop:
 
 ```ts twoslash
 // ---cut-start---
-import { connect } from "@lelantos-org/sdk";
+import type { WalletApi } from "@lelantos-org/sdk";
+declare const wallet: WalletApi;
 // ---cut-end---
-await connect({
-    privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-    network: "anvil",
-    rpcUrl: "http://localhost:8545",
-    denominations: false,
-});
+const rounds = await wallet.redenominate("USDC", { maxRounds: 4 });
 ```
 
-`true` is the default and gives every asset its derived ladder. `false` opts out entirely: change splits evenly again, `previewWithdraw` reports no ladder, and `redenominate` is a no-op — and it is now the only reason an asset has no ladder.
+- Each round creates `nOut - 1` denomination notes and one remainder note, until the remainder is below the smallest denomination.
+- It is idempotent and safe to run on a schedule.
+- A round that cannot find cover ends the loop without throwing.
+- The return value is the number of rounds run. `0` means the asset has no ladder or no notes needed splitting.
 
-::: warning The window is a pool-wide constant
-Every wallet on the same SDK version derives the same rungs for the same asset, which is what makes the set shared. Two versions with different windows split it at every rung outside their intersection, so the window changes only under a coordinated migration.
+## Selecting for zero change
+
+`DenominationCoinSelector` wraps the default SFRT selector and prefers note sets that pay the target exactly. An exact cover produces no change note. The selector is a `createWallet` option in `@lelantos-org/sdk/advanced`:
+
+```ts twoslash
+// ---cut-start---
+import type { KeySource, WalletConfig } from "@lelantos-org/sdk/advanced";
+declare const keySource: KeySource;
+declare const config: WalletConfig;
+// ---cut-end---
+import { createWallet, DenominationCoinSelector } from "@lelantos-org/sdk/advanced";
+
+const wallet = await createWallet(keySource, { ...config, selector: new DenominationCoinSelector() });
+```
+
+All other SFRT behaviour — dust thresholds, spend cooldown, reservations, consolidation — is unchanged. The default selector is plain SFRT.
+
+## What the ladder does not hide
+
+The ladder removes the amount as a link. Other withdrawal data remains public:
+
+| Still public | Implication |
+|---|---|
+| recipient address | withdrawals to one address are linked to each other and to that address's identity |
+| number and timing of withdrawals | a large balance leaves as several withdrawals; spread them across blocks and recipients |
+| deposit amounts | a rare deposit amount still narrows the candidate set |
+| network metadata | the relayer sees timing and IP address unless requests are routed elsewhere via `http.fetch` |
+
+- **Net amount.** The recipient receives the denomination minus `withdrawBps`, computed on chain, so all withdrawals of one denomination at one time receive the same net. Choosing `publicOut` to produce a round net amount — which is what `withdraw({ net })` does — makes `publicOut` distinctive again.
+- **Off-ladder amounts.** An amount no one else withdraws links to its funding deposit and marks the wallet as not using the ladder.
+- **Actual anonymity set.** The set is the number of users who withdrew that denomination, not the number who could have. The smallest and largest denominations, and low-traffic pools, provide less cover.
+
+Note selection and FMD delegation are separate privacy considerations; see [Note management](/guide/notes) and [Syncing](/guide/sync#sync-strategies).
+
+## Disabling ladders
+
+`denominations` on `connect()`, `connectWatch()`, and `WalletConfig` enables or disables ladders:
+
+```ts twoslash
+// ---cut-start---
+declare const privateKey: `0x${string}`;
+declare const rpcUrl: string;
+// ---cut-end---
+import { connect } from "@lelantos-org/sdk";
+
+await connect({ network: "base", rpcUrl, privateKey, denominations: false });
+```
+
+| Value | Effect |
+|---|---|
+| `true` (default) | every asset has a derived ladder |
+| `false` | change is split evenly, `previewWithdraw` reports no ladder, `redenominate` does nothing |
+
+::: warning The ladder is shared across SDK versions
+Every wallet on the same SDK version derives the same denominations for an asset, which is what forms a shared anonymity set. Versions with different ladders split that set, so the ladder changes only through a coordinated migration.
 :::
 
 ## Next
 
-- [Withdraw](/guide/withdraw) — where the gross becomes public
-- [Note management](/guide/notes) — selection, cover, and consolidation
-- [Fees](/guide/fees) — what the recipient actually receives
+- [Privacy checklist](/guide/privacy)
+- [Withdraw](/guide/withdraw)
+- [Note management](/guide/notes)

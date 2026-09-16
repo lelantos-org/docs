@@ -1,81 +1,149 @@
 # Swap
 
-An atomic shielded-to-shielded swap. Leg 1 unshields to a `SwapWrapper`; leg 2 re-shields the output note. Both legs are bundled through `submitter.submitSwap`, so the value is never sitting unshielded between two transactions — which is the whole point, and why a swap cannot be assembled from a `withdraw` followed by a `deposit`.
+A swap exchanges one shielded asset for another in a single atomic operation:
 
-A swap needs a `Submitter` that implements `submitSwap`. The default `HttpRelayerSubmitter` does; a custom one that omits it cannot run this path.
+1. **Leg 1** unshields the input asset to the `SwapWrapper` contract, which executes the trade.
+2. **Leg 2** re-shields the output as a new note for the recipient.
+
+Both legs are submitted together, so the value is never held unshielded between transactions. A `withdraw` followed by a `deposit` does not provide this guarantee. If the trade fails or passes its deadline, the wrapper re-shields the input as a refund note instead.
+
+A swap is two calls: `quoteSwap` prices it, and `swap` executes that quote.
 
 ```ts twoslash
 // ---cut-start---
-import { connect } from "@lelantos-org/sdk";
-const wallet = await connect({
-    privateKey: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-    network: "anvil",
-    rpcUrl: "http://localhost:8545",
-});
-const peerBech32 = wallet.address;
-const quoterUrl = "https://quote.lelantos.xyz";
-const chainId = 1n;
-const tokenIn = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2" as const;
-const tokenOut = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48" as const;
-const amountIn = 1000n;
+import type { WalletApi } from "@lelantos-org/sdk";
+declare const wallet: WalletApi;
 // ---cut-end---
-import { fetchSwapQuote } from "@lelantos-org/sdk/quoter";
+import { formatAmount } from "@lelantos-org/sdk";
 
-const quote = await fetchSwapQuote(quoterUrl, {
-    chainId,
-    tokenIn,
-    tokenOut,
-    amountIn,
+const quote = await wallet.quoteSwap({
+    assetIn: "WETH",
+    assetOut: "USDC",
+    gross: "0.5", // what leaves the pool; or `net` for what reaches the venue
     slippageBps: 50,
 });
 
-await wallet.swap({
-    assetIn: 1n,
-    assetOut: 2n,
-    amount: 100n, // gross publicOut in circuit units of `assetIn`
-    quote, // pins route + minOut
-    wrapperAddress: "0x0000000000000000000000000000000000000001",
-    bRecipient: peerBech32, // optional, default own address
-});
-```
+// What the output note will hold if the swap fills. Show this, not `expectedOut`.
+console.log("you receive", formatAmount(quote.credit.amount, quote.assetOut, { symbol: true }));
 
-## What the swap actually credits
-
-This is the part that is easy to get wrong in a UI.
-
-The re-shielded B-note is **not** `quote.minOut / scaleOut`, and it is not a floor either. `swap()` sizes it with `sizeBNote` and encodes that exact value as the deposit leg's `publicIn` — so that is what the wallet receives. The wrapper pulls only what the note needs, and any better-than-quoted fill goes to the treasury as dust.
-
-Show this figure, not `expectedOut`:
-
-```ts twoslash
-// ---cut-start---
-import type { ChainAdapter } from "@lelantos-org/sdk/chain";
-import type { AssetId } from "@lelantos-org/sdk";
-declare const chain: ChainAdapter;
-declare const asset: AssetId;
-declare const quote: { minOut: bigint };
-// ---cut-end---
-import { sizeBNote } from "@lelantos-org/sdk/wallet";
-
-const { scale, depositBps } = await chain.fetchAsset(asset);
-const credited = sizeBNote(quote.minOut, scale, depositBps);
+const result = await wallet.swap({ quote });
 //    ^?
 ```
 
-Leg 2 mints the B-note as a deposit, so the rate here is the **out** asset's `depositBps` — not its `withdrawBps`, and not the in-asset's rate. Both ride on the registry entry; there is no pool-wide fee to read.
+Swaps need `capabilities.swap`: a prover, a relayer that relays swaps, and a network with a quoter URL. The `SwapWrapper` address comes from the network preset or the relayer's `/chains`; without one, `quoteSwap` rejects `UNSUPPORTED_OPERATION`.
 
-::: danger Do not re-derive this
-The obvious closed form — `minOut * BPS / (scale * (BPS + depositBps))` — is only the lower bound the search starts from. It lands *below* `minOut` whenever the division is inexact: wrong on screen, and reverting on chain if used to size a transaction.
-:::
+## Quoting
 
-## Reading the receipt
+| `quoteSwap` option | Description |
+|---|---|
+| `assetIn`, `assetOut` | input and output assets |
+| `gross` **or** `net` | exactly one: `gross` leaves the pool, `net` is what reaches the venue (`gross − protocol fee`) — see [Gross and net](/guide/amounts#gross-and-net) |
+| `slippageBps` | maximum slippage, `0`–`10000` |
+| `feeAsset` | asset `fees.relayer` is quoted in; default `assetIn` |
+| `signal` | cancels the quote request |
 
-`SwapResult` reports **leg 1 only** — `spent`, `inputSum`, `sent`, and `change` all describe the unshield into the wrapper. The re-shielded B-note arrives as a deposit, so it surfaces through `depositId` and does not appear in `commitments`.
+| `SwapQuote` field | Meaning |
+|---|---|
+| `gross`, `net` | leg 1 in `assetIn`; `net.baseUnits` is the venue's `amountIn` |
+| `onLadder` | whether `gross` is a denomination of `assetIn` (it is published) |
+| `expectedOut`, `minOut` | the venue's expected output and the slippage floor, base units of `assetOut` |
+| `credit` | exactly what the output note will hold if the swap fills |
+| `refundCredit` | what the refund note would hold, in `assetIn` |
+| `fees.protocol` | leg 1's withdraw fee, in `assetIn`, taken out of `gross` |
+| `fees.relayer` | the relayer's spend fee, in the fee asset; paid from notes, not inside `gross` |
+| `fees.flush`, `fees.outProtocol` | leg 2's relayer flush fee and deposit fee, in `assetOut`; already subtracted from `credit` |
+| `venue`, `quotedAt` | venue label and the unix second it was queried |
 
-That also means the B-note follows the deposit lifecycle: it is escrowed when the swap is mined, and only spendable once the relayer has flushed it into the tree and the wallet has synced. See [Deposit](/guide/deposit#the-deposit-lifecycle).
+`credit` is not `minOut / scale`: leg 2's fees come out of the output, and any fill above `minOut` goes to the treasury. The quote computes it with the same code the swap binds into the proof.
+
+A quote is plain frozen data and survives `structuredClone`, so it can live in a UI cache. Do not construct or edit one.
+
+## Executing
+
+| `swap` option | Description |
+|---|---|
+| `quote` | from `quoteSwap`; its assets, amount, route, and `minOut` are what the proof binds |
+| `recipient` | shielded owner of the output note; default this wallet |
+| `refundAddress` | EVM account bound into the intent for refunds; default this wallet's EOA, else the relayer's |
+| `deadline` | unix seconds after which the wrapper refunds instead of swapping |
+| `feeAsset`, `selection`, `autoConsolidate`, `signal`, `onPhase`, `opId` | as for [Transfer](/guide/transfer) |
+
+`swap` does not trust the quote object. It re-resolves both assets and recomputes `gross`, `net`, `credit`, and `refundCredit` at current rates:
+
+| Outcome | Code | What to do |
+|---|---|---|
+| figures reproduce | — | the swap runs |
+| a yield index or the relayer's flush fee moved since quoting | `QUOTE_STALE`, `retryable: true`, `fields` names the moved figures | re-quote, show the new figures, and run the new quote |
+| the quote was altered or is malformed | `INVALID_ARGUMENT`, `argument: "quote"` | a bug in the caller |
+
+```ts twoslash
+// ---cut-start---
+import type { QuoteSwapOptions, SwapResult, WalletApi } from "@lelantos-org/sdk";
+declare const wallet: WalletApi;
+declare function confirmWithUser(q: Awaited<ReturnType<WalletApi["quoteSwap"]>>): Promise<boolean>;
+// ---cut-end---
+import { isWalletError } from "@lelantos-org/sdk";
+
+async function swapWithFreshQuote(args: QuoteSwapOptions): Promise<SwapResult | undefined> {
+    for (let attempt = 0; attempt < 3; attempt++) {
+        const quote = await wallet.quoteSwap(args);
+        if (!(await confirmWithUser(quote))) return undefined;
+        try {
+            return await wallet.swap({ quote });
+        } catch (err) {
+            if (!isWalletError(err, "QUOTE_STALE")) throw err;
+            console.info("quote moved:", err.fields); // e.g. ["credit"]
+        }
+    }
+    throw new Error("rates keep moving; try again later");
+}
+```
+
+Beyond that check, staleness is your policy: `quotedAt` says how old the venue price is, and the chain enforces `minOut`.
+
+## Reading the result
+
+| Field | Meaning |
+|---|---|
+| `asset`, `assetOut` | input and output assets |
+| `gross`, `net`, `onLadder` | leg 1, as quoted |
+| `expectedCredit` | the output note's value if the swap fills: the quote's `credit` |
+| `refundCredit` | the refund note's value if it does not |
+| `creditCommitment`, `refundCommitment` | exactly one of the two lands; await it with `awaitCommitments` |
+| `deadline` | unix seconds after which the wrapper refunds |
+| `fees` | the quote's four fees, with `relayer` as actually paid |
+| `spent`, `change`, `txHash`, `opId` | as for a transfer |
+
+Exactly one of the two notes lands, so wait for whichever appears first:
+
+```ts twoslash
+// ---cut-start---
+import type { SwapResult, WalletApi } from "@lelantos-org/sdk";
+declare const wallet: WalletApi;
+declare const result: SwapResult;
+// ---cut-end---
+async function swapOutcome(r: SwapResult): Promise<"filled" | "refunded"> {
+    const credit = r.creditCommitment.toLowerCase();
+    const refund = r.refundCommitment.toLowerCase();
+    for (;;) {
+        await wallet.sync({ scope: "notes" });
+        for (const note of await wallet.notes()) {
+            const cm = note.cm.toLowerCase();
+            if (cm === credit) return "filled";
+            if (cm === refund) return "refunded";
+        }
+        await new Promise((resolve) => setTimeout(resolve, 2_000));
+    }
+}
+
+console.log(await swapOutcome(result));
+```
+
+With a `recipient` other than this wallet, the credit note lands in the recipient's wallet instead.
+
+Without a wallet, `fetchSwapQuote` (`@lelantos-org/sdk/services`) and `sizeBNote` (`@lelantos-org/sdk/protocol`) are the underlying venue client and output sizing.
 
 ## Next
 
-- [Syncing](/guide/sync) — the B-note is not spendable until it is synced
-- [Fees](/guide/fees) — swaps are quoted on their own endpoint
-- [Low-level primitives](/guide/primitives)
+- [Syncing](/guide/sync)
+- [Fees](/guide/fees)

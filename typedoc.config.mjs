@@ -31,6 +31,7 @@ export default {
         "typedoc-plugin-markdown",
         "typedoc-vitepress-theme",
         "./scripts/lib/typedoc-viem.mjs",
+        "./scripts/lib/typedoc-subpaths.mjs",
     ],
     // The SDK marks internals with @internal; they are not supported surface.
     excludeInternal: true,
@@ -44,10 +45,11 @@ export default {
     // TypeDoc warns when an entry here goes unused, so a rename upstream shows
     // up rather than rotting.
     intentionallyNotExported: [
-        "ChainOptionKeys",
-        "KeyOptionKeys",
+        "ChainKeys",
+        "Hex",
+        "KeyKeys",
         "Loose",
-        "NoKeyOptions",
+        "NoKey",
         "Only",
         "SelfKeyingChainOptions",
     ],
