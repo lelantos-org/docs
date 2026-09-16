@@ -28,10 +28,6 @@ Observations:
 - The single-threaded row reflects a page without cross-origin isolation. In that configuration the SDK uses snarkjs instead.
 - On the iPhone, cold artifact preparation (6.4 s) exceeds proving time. It occurs once per session; `wallet.warmProver()` (or `prover: { warmup: "eager" }`) and the Cache API move it out of the first transaction. Over the public internet, download time depends on bandwidth.
 
-::: info Circuit versions
-The 16-thread row uses circuits 0.14.0. The iPhone and single-thread rows use circuits 0.12.1, which was slower: 0.14.0 reduced Groth16 on the Mac from 703 ms to 385 ms. Treat those two rows as upper bounds.
-:::
-
 ## Native prover (relayer)
 
 The relayer proves natively on a larger circuit. Only the cost breakdown has been measured:
