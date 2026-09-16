@@ -89,4 +89,3 @@ Payments are shielded transfers by default. `allowUnshielded: true` also pays se
 ## Next
 
 - [Pluggable interfaces](/guide/interfaces)
-- [Migrating from 0.38](/guide/migration-0.38-to-0.39#subpaths)

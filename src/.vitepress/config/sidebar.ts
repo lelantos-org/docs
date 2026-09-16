@@ -14,7 +14,6 @@ export const guideSidebar: DefaultTheme.SidebarItem[] = [
         items: [
             { text: "Installation", link: "/guide/installation" },
             { text: "Quickstart", link: "/guide/quickstart" },
-            { text: "Migrating from 0.38", link: "/guide/migration-0.38-to-0.39" },
         ],
     },
     {

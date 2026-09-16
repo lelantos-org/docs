@@ -6,10 +6,6 @@ You can find these docs as plain markdown: [llms.txt](https://docs.lelantos.xyz/
 
 `@lelantos-org/sdk` is published to **GitHub Packages**, not the public npm registry. A plain `npm install` returns a 404. Point the `@lelantos-org` scope at GitHub Packages and provide a token with the `read:packages` scope.
 
-::: info Upgrading from 0.38
-0.39 is a breaking redesign of the public API. See [Migrating from 0.38](/guide/migration-0.38-to-0.39).
-:::
-
 ## 1. Configure the registry
 
 Add an `.npmrc` to the consuming repository:

@@ -24,7 +24,7 @@ The preset has no deployed contracts (for example `sepolia`). Use a deployed pre
 
 ### TypeScript cannot resolve `@lelantos-org/sdk/...`
 
-Set `"moduleResolution"` to `"nodenext"` or `"bundler"`. If the import is one of the subpaths removed in 0.39 (`/core`, `/wallet`, `/chain`, …), see the [subpath map](/guide/migration-0.38-to-0.39#subpaths).
+Set `"moduleResolution"` to `"nodenext"` or `"bundler"`. If the subpath does not exist, see [Subpaths](/guide/subpaths) for the ones the SDK exports.
 
 ### `npm install` returns 404
 

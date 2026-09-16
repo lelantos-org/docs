@@ -5,7 +5,6 @@ Proof generation is the most expensive client-side operation. These measurements
 | Parameter | Value |
 |---|---|
 | Date | 2026-09-12 |
-| SDK | 0.36.0 |
 | Circuit | `TRANSACT_4X6`, Merkle depth 11, ~48 MB zkey |
 | Network | HTTPS over LAN |
 | Method | one warm-up run, then median of 5 timed runs from `lelantos:prover:wasm` logs |

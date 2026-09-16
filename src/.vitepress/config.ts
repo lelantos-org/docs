@@ -72,10 +72,7 @@ export default defineConfig({
             { text: "Reference", link: "/reference/" },
             {
                 text: `v${SDK_VERSION}`,
-                items: [
-                    { text: "Migrating from 0.38", link: "/guide/migration-0.38-to-0.39" },
-                    { text: "Releases", link: "https://github.com/lelantos-org/sdk/releases" },
-                ],
+                items: [{ text: "Releases", link: "https://github.com/lelantos-org/sdk/releases" }],
             },
         ],
         socialLinks: [{ icon: "github", link: "https://github.com/lelantos-org/sdk" }],
