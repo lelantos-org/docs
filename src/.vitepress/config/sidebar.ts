@@ -63,6 +63,7 @@ export const guideSidebar: DefaultTheme.SidebarItem[] = [
         text: "Integration",
         items: [
             { text: "Package subpaths", link: "/guide/subpaths" },
+            { text: "x402 payments", link: "/guide/x402" },
             { text: "Browser usage", link: "/guide/browser" },
             { text: "Node usage", link: "/guide/node" },
             { text: "Custom storage", link: "/guide/storage" },

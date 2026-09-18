@@ -35,6 +35,7 @@ taceo
 toggleable
 Tramèr
 Twoslash
+unlinkable
 unshield
 unshielding
 unshields

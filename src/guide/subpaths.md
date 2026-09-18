@@ -86,6 +86,9 @@ To send the wrapped requests through your own `fetch` (a proxy, instrumentation)
 
 Payments are shielded transfers by default. `allowUnshielded: true` also pays servers that accept only standard EVM `exact`, by unshielding into a throwaway address; it is off by default.
 
+Budgets, offer selection, the unshielded mechanism and every refusal reason are covered in [x402 payments](/guide/x402).
+
 ## Next
 
+- [x402 payments](/guide/x402)
 - [Pluggable interfaces](/guide/interfaces)
