@@ -171,7 +171,7 @@ stream.close();
 | `txHash`, `opId` | the deposit transaction and this call's correlation id |
 | `ownCommitments` | the new note's commitment, when `recipient` is this wallet |
 
-`escrow` is plain data. Persist it with a bigint-aware serializer to await or cancel after a reload.
+`escrow` is plain data. Persist it whole, with a bigint-aware serializer, to await or cancel after a reload.
 
 ## Cancelling a deposit
 
@@ -194,11 +194,16 @@ if (tip !== undefined && tip >= escrow.cancellableAtBlock) {
 
 `cancelDeposit` accepts the `escrow` a deposit returned, whose `cancelInputs` are used as-is, or `{ depositId, fromBlock? }`, in which case the inputs are rebuilt from the pool's `DepositEscrowed` log. The log is searched from a recent window by default; pass `fromBlock` for an older escrow. Native escrows are routed through `NativeAdapter` automatically.
 
+`cancelInputs` is the escrow as the pool published it in `DepositEscrowed`. The pool keeps only a digest of those fields, so a cancel hands every one back unchanged: an altered field reverts with `DigestMismatch`, and a missing one (a stored escrow from an older SDK, or a serializer that names bigint fields and omits `pulled`) is rejected as `INVALID_ARGUMENT` before any request. Do not fill a field in by hand; cancel with `{ depositId }` instead, which rereads the inputs from the log.
+
+`cancelInputs.pulled` is the escrow's refund cap: for a yield-bearing asset, the base units pulled in the deposited asset's token, which `refunded` never exceeds; for a plain asset, exactly `0n`. It is not `DepositResult.pulled`, which lists the deposit's pulls per asset.
+
 | Failure | Code |
 |---|---|
 | already flushed or cancelled | `INVALID_ARGUMENT`, `argument: "depositId"`, before any transaction |
+| `cancelInputs` incomplete | `INVALID_ARGUMENT`, `argument: "cancelInputs"`, before any request |
 | no signing account | `NO_EVM_ACCOUNT` |
-| cancelled before `cancellableAtBlock` | `RPC_FAILED` with `retryable: false` (the pool reverted the call), or `TX_REVERTED` if it was mined |
+| cancelled before `cancellableAtBlock`, or with altered `cancelInputs` | `RPC_FAILED` with `retryable: false` (the pool reverted the call), or `TX_REVERTED` if it was mined |
 
 ::: warning Block numbers on rollups
 `cancellableAtBlock` is in the EVM's `block.number` space. On Arbitrum that is the L1 block number, while logs and the default search window use L2 blocks. When cancelling by `depositId` on a rollup, pass `fromBlock`.

@@ -101,6 +101,10 @@ The submission may have landed. Do not resend blindly; see [Spend outcome unknow
 
 The relayer does not accept the asset named as `feeAsset`. `err.accepted` lists the ones it does; `quoteFee(kind).options` lists them with amounts.
 
+### `FEE_ABOVE_LIMIT`
+
+The relayer quoted more than `maxFee` or `acceptRelayerFee` allows; nothing was proven or sent. Retry later, raise the limit, or pay in another asset. See [Limiting the relayer fee](/guide/fees#limiting-the-relayer-fee).
+
 ### Cross-asset fee raises `INSUFFICIENT_COVER` with `reason: "fee-slot"`
 
 The spend uses every input slot, leaving none for the fee note. Size it with `spendableMax(asset, { kind, feeAsset })`, consolidate the asset being moved, or pay the fee in it. See [Paying the fee in a different asset](/guide/fees#paying-the-fee-in-a-different-asset).
@@ -126,6 +130,10 @@ The asset has no `rate`. A custom chain adapter must return `rate` for yield-bea
 ### `awaitDeposit` resolves `"timeout"`
 
 The relayer has not flushed the deposit yet, or the indexer is behind. The deposit itself is mined; wait longer, or cancel once cancellable.
+
+### `cancelDeposit` raises `INVALID_ARGUMENT` on a stored escrow
+
+`err.argument` is `"cancelInputs"`: a field of the stored escrow is missing or lost its type, such as a `bigint` restored as a string. Cancel with `{ depositId }` instead, which rereads the inputs from the pool's log. See [Cancelling a deposit](/guide/deposit#cancelling-a-deposit).
 
 ## Proving and performance
 

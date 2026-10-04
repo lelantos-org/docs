@@ -72,7 +72,8 @@ When an optional member is missing, the dependent feature is unavailable; nothin
 | `nativeAdapterAddress` | no native deposits or withdrawals |
 | `tokenBalanceOf`, `nativeBalance`, `tokenAllowance`, `permit2Allowance` | `quoteDeposit` reports `balance` / `allowance` as `undefined` |
 | `getEscrowed`, `fetchDepositEscrowed`, `cancelDelay` | no cancel by `depositId`; `cancellableAtBlock` uses a conservative bound |
-| `waitTxReceipt`, `txReceiptLogs` | no confirmation wait after broadcast; results carry no `operation` |
+| `waitTxReceipt`, `txReceiptLogs` | no confirmation wait after broadcast; results carry no `operation`; `confirmCommitment` rejects `UNSUPPORTED_OPERATION` |
+| `fetchNotePayload` | `paymentProof` rejects `UNSUPPORTED_OPERATION`, and the layer cannot serve `verifyPaymentProof` |
 
 ## Implementing an adapter
 
@@ -87,6 +88,8 @@ A `ChainAdapter` adds `payerAddress` and `signPermit2`, both required, plus the 
 | `cancelDeposit`, `cancelDepositNative` | reclaiming escrows |
 
 Each deposit write resolves once mined with `{ txHash, depositId, blockNumber, escrowed }`, where `escrowed` is the pool's decoded `DepositEscrowed` log. A signing failure from the user should reject with `UserRejectedError`; the viem adapter maps EIP-1193 code `4001` for you.
+
+`escrowed` includes the log's last field, `pulled`, the escrow's refund cap (`0n` for a plain asset). Read it from the log rather than computing it, and return the same record from `fetchDepositEscrowed`. The wallet builds the `inputs` of `cancelDeposit` and `cancelDepositNative` from that record; forward them unchanged, with `inputs.pulled` as the last argument of the contract call. The pool digests every field, so any other value reverts with `DigestMismatch`.
 
 Type guards narrow a reader to a capability:
 

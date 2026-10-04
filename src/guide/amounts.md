@@ -6,7 +6,7 @@ A value can be held in three unit spaces. The SDK never guesses which one a numb
 |---|---|---|
 | human | `"1.5"` | user input and display |
 | base units | `1500000000000000000n` (`TokenAmount`) | ERC-20 balances, allowances, pulls, and what a recipient receives |
-| circuit units | `1500n` (`CircuitAmount`) | note values and the pool's `publicIn` / `publicOut` |
+| circuit units | `150000000n` (`CircuitAmount`) | note values and the pool's `publicIn` / `publicOut` |
 
 Base and circuit units are related per asset:
 
@@ -29,14 +29,14 @@ declare const wallet: WalletApi;
 import { formatAmount, minAmount, parseAmount } from "@lelantos-org/sdk";
 
 const weth = await wallet.asset("WETH");
-// → { id: 1n, token: "0xC02a…", scale: 1000000000000000n, symbol: "WETH", decimals: 18,
+// → { id: 1n, token: "0xC02a…", scale: 10000000000n, symbol: "WETH", decimals: 18,
 //     depositBps: 0n, withdrawBps: 25n, index: RAY, yieldEnabled: false, ladder: [...] }
 
-const units = parseAmount("0.25", weth); // 250n — human → circuit
+const units = parseAmount("0.25", weth); // 25000000n — human → circuit
 //    ^?
 
 formatAmount(units, weth, { symbol: true }); // "0.25 WETH" — circuit → human
-minAmount(weth); // "0.001" — the smallest expressible amount
+minAmount(weth); // "0.00000001" — the smallest expressible amount
 ```
 
 `wallet.assets()` lists every registered asset for display. It is the relayer's list and is not verified against the chain; operations always resolve through the verified path.

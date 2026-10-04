@@ -99,6 +99,43 @@ if (!quote.charged) {
 `affordable` compares the fee with the unspent balance of that asset. The notes must also fit the circuit's input slots, alongside the notes being spent. Use `spendableMax(asset, { kind, feeAsset })` for a figure that accounts for both.
 :::
 
+## Limiting the relayer fee
+
+The fee is the relayer's own quote, and the wallet pays it as quoted. Nothing else bounds it, so set a limit wherever no person reviews the fee before it is paid: agents, scripts, and [x402 payers](/guide/x402#a-budget-is-required), whose `budget` covers servers only.
+
+`maxFee` limits one spend. It is stated in the fee asset, and a dearer quote rejects with `FEE_ABOVE_LIMIT` before anything is proven:
+
+```ts twoslash
+// ---cut-start---
+import type { WalletApi } from "@lelantos-org/sdk";
+declare const wallet: WalletApi;
+declare const recipient: string;
+// ---cut-end---
+await wallet.transfer({ asset: "USDC", amount: "25", recipient, maxFee: "0.10" });
+```
+
+`acceptRelayerFee` covers every quote the wallet pays, including deposits and the self-spends that `autoConsolidate` and `redenominate` run, which `maxFee` does not reach:
+
+```ts twoslash
+// ---cut-start---
+declare const rpcUrl: string;
+declare const mnemonic: string;
+declare const USDC_ID: bigint;
+// ---cut-end---
+import { connect } from "@lelantos-org/sdk";
+
+const wallet = await connect({
+    network: "base",
+    rpcUrl,
+    mnemonic,
+    readOnly: true,
+    // `asset` is the fee asset's id, `amount` its circuit units.
+    acceptRelayerFee: ({ asset, amount }) => asset === USDC_ID && amount <= 100_000n,
+});
+```
+
+Either rejection is `FEE_ABOVE_LIMIT`, and `retryable`: a quote follows gas and may fall back under the limit. Its fields are listed under [Errors](/guide/errors#funds).
+
 ## Paying the fee in a different asset
 
 By default the relayer fee is paid in the moved asset. Set `feeAsset` to pay in another:

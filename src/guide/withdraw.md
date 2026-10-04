@@ -27,7 +27,7 @@ tx.onLadder;
 | `gross` **or** `net` | exactly one — see [Gross or net](#gross-or-net) |
 | `recipient` | EVM address receiving the tokens |
 | `native` | unwrap to the native coin — see [To native ETH](#to-native-eth) |
-| `feeAsset`, `selection`, `autoConsolidate`, `deadline`, `signal`, `onPhase`, `opId` | as for [Transfer](/guide/transfer) |
+| `feeAsset`, `maxFee`, `selection`, `autoConsolidate`, `deadline`, `signal`, `onPhase`, `opId` | as for [Transfer](/guide/transfer) |
 
 Change is returned as new notes. When the asset has a withdrawal ladder, change is split into ladder denominations — see [Denominations](/guide/denominations#change-lands-on-the-ladder-too).
 

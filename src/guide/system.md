@@ -228,6 +228,18 @@ The relayer and the FMD server are defaults, not requirements. `Submitter` and `
 
 Only deposits and withdrawals are publicly visible. Shielded transfers are not.
 
+## What each service can and cannot do
+
+No service holds a key, so none can spend. What each can still do, and what the SDK offers against it:
+
+| Service | Cannot | Can | Check |
+|---|---|---|---|
+| **relayer** | change the recipient, the amount or any output: the proof binds them | quote any fee; refuse to relay | `maxFee` on a spend, `acceptRelayerFee` on the wallet — [Fees](/guide/fees#limiting-the-relayer-fee) |
+| **fmd-webserver** | make a spend land: a proof against a tree the pool does not hold is rejected on chain | withhold a note; serve a well-formed note the pool never inserted | `confirmCommitment` before crediting a payment — [Watch-only wallets](/guide/watch-only#confirming-a-payment-against-the-pool) |
+| **artifact host** | — | serve another proving key, whose proofs can leak the witness | digest pinning — [Browser usage](/guide/browser#pinning-the-artifacts) |
+
+A wallet that only displays a balance needs none of these. One that pays unattended, or releases goods on a payment, should use the first two.
+
 ## Next
 
 - [Concepts](/guide/concepts)

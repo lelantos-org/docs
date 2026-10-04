@@ -72,6 +72,27 @@ const wallet = await connect({
 
 Alternatively, set `prover: { cdn }` to a base URL that serves `<shape>.wasm` and `<shape>_final.zkey`; the SDK derives both file names from the circuit shape.
 
+### Pinning the artifacts
+
+A proving key is trusted input: a substituted one can make its proofs leak the witness, which holds the spending key. Artifacts the SDK locates itself (`prover.cdn`, and `@lelantos-org/circuits` on Node) are checked against the SHA-256 of the published release before parsing and refused with `PROVER_ARTIFACTS_FAILED` on a mismatch, so a `cdn` must serve the release's files unchanged.
+
+Explicit `artifacts` are taken as given, since they may be a build of your own. To pin the published files served from your own URLs, pass their digests:
+
+```ts twoslash
+import type { ProverConfig } from "@lelantos-org/sdk";
+import { PROVER_ARTIFACT_SHA256 } from "@lelantos-org/sdk/prover";
+
+const prover: ProverConfig = {
+    artifacts: {
+        circuit: "https://cdn.example.com/4x6.wasm",
+        zkey: "https://cdn.example.com/4x6_final.zkey",
+        sha256: PROVER_ARTIFACT_SHA256["4x6"],
+    },
+};
+```
+
+The check also covers the artifact cache: a cached entry that no longer matches is discarded and downloaded again.
+
 Nothing is downloaded at `connect()`. With the default `warmup: "lazy"`, artifacts are fetched at the first proof; call `wallet.warmProver()` when the user opens a send form, or set `warmup: "eager"` to start in the background right after connecting. A missing artifact configuration surfaces then, as `PROVER_ARTIFACTS_MISSING`.
 
 ### Circuit shape
@@ -194,7 +215,7 @@ Set the thread count with `prover: { threads }`, `configureProverThreads(n)` fro
 Downloaded artifacts are stored in the **Cache API** automatically when the browser supports it. The Cache API is shared across the origin, so the cache serves both page reloads and the prover worker.
 
 ::: danger The URL is the cache key
-Cached artifacts are not revalidated. Publish new proving keys under a new URL.
+Unpinned artifacts are not revalidated: publish new proving keys under a new URL. Pinned artifacts are checked against their digest on every load, so a stale entry is discarded and fetched again. See [Pinning the artifacts](#pinning-the-artifacts).
 :::
 
 ```ts twoslash

@@ -36,6 +36,8 @@ The pool hides which notes a transaction spends, who receives a transfer, and tr
 - **Keep the `full` sync strategy** unless bandwidth requires `matches`. Delegating detection cannot be revoked. See [Sync strategies](/guide/sync#sync-strategies).
 - **In a watch-only wallet, leave `allowDetectionKeyRelease` unset.** The decision belongs to the account owner. See [Watch-only wallets](/guide/watch-only#differences-from-a-spending-wallet).
 - **Treat viewing keys as permanent disclosure.** They cannot be revoked. See [Watch-only wallets](/guide/watch-only).
+- **Treat a payment proof as disclosure of one payment.** With the payee's address, its holder reads that output's asset and value; it reveals nothing else. Send it only to whoever should learn it. See [Proving a payment](/guide/transfer#proving-a-payment).
+- **Treat a claim-link key as the funds.** Whoever holds it can spend what the link holds. See [Claim-link keys](/guide/transfer#claim-link-keys).
 - **Derive subscription tokens from `ivk`**, and store the epoch after rotating. See [Rotating the token](/guide/sync#rotating-the-token).
 
 ### Network

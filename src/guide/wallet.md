@@ -7,7 +7,7 @@
 | Network | `network`, `rpcUrl` | `network` always; `rpcUrl` unless the preset carries one or the chain layer is pre-built |
 | Key source | `mnemonic` (+ `account`, `passphrase`), `signature`, `nsk` | unless the chain layer derives the key |
 | Chain layer | `privateKey`, `signer`, `provider` + `address`, `readOnly`, `reader`, `chain` | exactly one |
-| Extras | `prover`, `scanner`, `http`, `storage`, `shape`, `denominations`, `syncStrategy`, `wasm`, `runtime` | no |
+| Extras | `prover`, `scanner`, `http`, `storage`, `shape`, `denominations`, `acceptRelayerFee`, `syncStrategy`, `wasm`, `runtime` | no |
 
 The wallet's viewing keys and bech32m address are derived from the shielded spending key (`nsk`).
 

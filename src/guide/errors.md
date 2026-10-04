@@ -73,6 +73,7 @@ Fix the call or the wiring. None is retryable.
 | `NOTES_HELD` | `NotesHeldError` | `asset`, `required`, `spendable`, `held.{reserved,cooldown,dust}` (`value`, `count`), `reservedUntil?` | when reserved and cooling-down notes alone cover the shortfall; not when only dust would |
 | `INSUFFICIENT_COVER` | `InsufficientCoverError` | `asset`, `target`, `consolidate[]` (`id`, `value`), `consolidateSum`, `consolidationAttempted`, `reason` (`"arity"` \| `"fee-slot"`) | no: consolidate, or pass `autoConsolidate: true` |
 | `FEE_ASSET_NOT_QUOTED` | `FeeAssetNotQuotedError` | `asset`, `kind`, `accepted[]` | no: pick an accepted asset |
+| `FEE_ABOVE_LIMIT` | `FeeAboveLimitError` | `asset`, `quoted`, `limit?`, `source` (`"maxFee"` \| `"acceptRelayerFee"`), `kind` | yes: the quote follows gas; otherwise raise the limit |
 
 ### Submission
 
@@ -110,7 +111,7 @@ Fix the call or the wiring. None is retryable.
 | `PROVER_FAILED` | `ProverError` | | no |
 | `PROVER_UNAVAILABLE` | `ProverUnavailableError` | | no: `prover: "none"`, or the optional peer the backend needs is not installed |
 | `PROVER_ARTIFACTS_MISSING` | `ProverArtifactsMissingError` | `tried[]`, `shape` | no — see [Browser usage](/guide/browser#prover-artifacts) |
-| `PROVER_ARTIFACTS_FAILED` | `ProverArtifactsFailedError` | `source` | per HTTP status: not for 4xx |
+| `PROVER_ARTIFACTS_FAILED` | `ProverArtifactsFailedError` | `source` | per HTTP status: not for 4xx, and never for an artifact that fails its pinned digest |
 | `WORKER_TIMEOUT` | `WorkerRpcError` | `method?` | yes |
 | `WORKER_CRASHED`, `WORKER_FAILED` | `WorkerRpcError` | `method?` | no |
 

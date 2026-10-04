@@ -88,6 +88,21 @@ Without `rpcUrl` or `reader`, no RPC is contacted: `sync`, `notes`, and `state` 
 
 For explicit configuration, `createWatchWallet(key, config)` in `@lelantos-org/sdk/advanced` is the counterpart of `createWallet`.
 
+## Confirming a payment against the pool
+
+Notes come from the indexer, and anyone who knows an address can encrypt a well-formed note to it. A note in `notes()` shows what the indexer served, not that the pool holds it. Before crediting a payment, ask the pool:
+
+```ts twoslash
+// ---cut-start---
+import type { ReadOnlyWalletApi } from "@lelantos-org/sdk";
+declare const watch: ReadOnlyWalletApi;
+declare const receipt: { commitment: string; txHash: string };
+// ---cut-end---
+const paid = await watch.confirmCommitment(receipt.commitment, receipt.txHash);
+```
+
+`confirmCommitment` reads the transaction's receipt over the wallet's own RPC and resolves `true` only if the pool published that commitment in it. The note gives the asset and value; this gives its existence. A deposit's escrow resolves `false` until flushed, since it can still be cancelled. Without `rpcUrl` or `reader` it rejects `UNSUPPORTED_OPERATION`.
+
 ## Differences from a spending wallet
 
 | | Spending wallet | Watch-only wallet |

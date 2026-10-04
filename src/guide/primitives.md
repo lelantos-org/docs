@@ -32,8 +32,8 @@ A deposit has no proof and no output slots. Its fee is a second leaf next to the
 
 | Rule | Detail |
 |---|---|
-| Asset | `fee.asset`, defaulting to the deposit asset. The note, its commitment, and `feeCvDep` use that asset, and the request sets `feeAssetId` to it. A different asset must be non-yield-bearing and accepted by the relayer. |
-| Zero-value fee | a zero-value note in the deposit asset, with `feeAssetId = 0`. The circuit forces a zero-value leaf's asset to 0; the pool reverts with `FeeAssetMustBeZero` otherwise. |
+| Asset | `fee.asset`, defaulting to the deposit asset. The note and its commitment use that asset, and the request sets `feeAssetId` to it. A different asset must be non-yield-bearing and accepted by the relayer. |
+| Zero-value fee | a zero-value note naming asset 0, with `feeAssetId = 0`. The circuit hashes `feeAssetId` into the leaf, so the note must carry the same id; the pool reverts with `FeeAssetMustBeZero` for any other id on a zero-value leaf. |
 | Permit | determined by `isSameFeeAsset(feeIn, feeAssetId, publicAssetId)`. If true, sign a single-token `PermitWitnessTransferFrom` with `maxFee = 0`. If false, pass `feeToken` and `maxFee` to `signPermit2Witness`, which signs a `PermitBatchWitnessTransferFrom` over `[deposit token, fee token]` in that order. |
 
 `isSameFeeAsset` compares asset ids, not token addresses: a plain asset and a yield asset can share one ERC-20 and still require two transfers.

@@ -16,7 +16,7 @@ const unspentUsdc = await wallet.notes({ asset: 1n, spent: false }); // both fie
 
 `notes()` reads the local cache as of the last sync; it makes no request. For totals, use [`balance(asset)`](/guide/state#balance) or `state().balances`.
 
-`WalletNote` is the public note view: `id`, `asset`, `value`, `spent`, `cm`, `firstSeenBlock`, `discoveredAt`. For the fields custom proofs need, `note.notePayload()` returns `{ asset, value, rho, rcm, rcvDep }`.
+`WalletNote` is the public note view: `id`, `asset`, `value`, `spent`, `cm`, `firstSeenBlock`, `discoveredAt`. For the fields custom proofs need, `note.notePayload()` returns `{ asset, value, rho, rcm }`.
 
 ## What a single spend can reach
 
