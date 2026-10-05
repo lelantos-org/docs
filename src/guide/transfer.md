@@ -12,6 +12,7 @@ const tx = await wallet.transfer({
     asset: "USDC", // id, token address or symbol
     amount: "25", // the recipient note's value — see Amounts
     recipient: peer, // bech32m `lelantos1…` address
+    memo: "INV-2026-00418", // optional — text only the recipient can read
     feeAsset: "USDC", // optional — pay the relayer in another asset
     autoConsolidate: true, // optional — merge notes and retry when no cover exists
     selection: { dustThreshold: 10n }, // optional — coin-selection rules
@@ -27,6 +28,7 @@ tx.recipientCommitment;
 | `asset` | registry id, token address, or symbol |
 | `amount` | the recipient note's value: a decimal string, an SDK-returned amount, or `{ baseUnits }` |
 | `recipient` | recipient shielded address |
+| `memo` | text for the recipient, encrypted with the note — see [Memo](#memo) |
 | `feeAsset` | pay the relayer fee in another asset — see [Fees](/guide/fees#paying-the-fee-in-a-different-asset) |
 | `maxFee` | cap on the relayer fee, in the fee asset — see [Fees](/guide/fees#limiting-the-relayer-fee) |
 | `autoConsolidate` | on `INSUFFICIENT_COVER`, merge notes with a self-transfer and retry once. Default `false` |
@@ -57,9 +59,32 @@ Output order is randomized so observers cannot tell which output is the payment.
 
 Sharing `recipientCommitment` with the payee reveals nothing new; the payee finds the same note when syncing, and can wait for it with `awaitCommitments([cm])`.
 
+## Memo
+
+`memo` attaches a short text to the payee's note. It is encrypted with the note, so only the recipient reads it: the relayer, the chain and observers see ciphertext of the same length whether a memo was sent or not.
+
+```ts twoslash
+// ---cut-start---
+import type { WalletApi } from "@lelantos-org/sdk";
+declare const wallet: WalletApi;
+declare const peer: string;
+// ---cut-end---
+await wallet.transfer({ asset: "USDC", amount: "25", recipient: peer, memo: "INV-2026-00418" });
+
+// The recipient, after syncing:
+for (const note of await wallet.notes({ spent: false })) {
+    if (note.memo !== undefined) console.log(note.value, note.memo);
+}
+```
+
+- **Size.** At most 128 bytes as UTF-8: 128 ASCII characters, about 64 Cyrillic or Arabic, about 42 Chinese or Japanese. `MEMO_BYTES` from `@lelantos-org/sdk/primitives` is the limit. A longer text, or one containing U+0000, throws `INVALID_ARGUMENT` before any note is selected.
+- **The sender keeps no copy.** The wallet does not store the memo and cannot read it back from the chain. Keep it with the transfer's result: a [payment proof](#proving-a-payment) needs the exact text, and shows it to whoever verifies the proof.
+- **It is the sender's text.** The recipient's wallet does not check it. Show it as plain text, and do not treat a link or an instruction in it as coming from anyone the recipient trusts.
+- **It lasts as long as the note.** [`compact()`](/guide/notes) removes a spent note together with its memo.
+
 ## Proving a payment
 
-A transfer is private to everyone but its two parties, so a sender in a dispute has nothing to show. `paymentProof` produces the secret behind one output; with the payee's address, its holder reads that output's asset and value from the chain.
+A transfer is private to everyone but its two parties, so a sender in a dispute has nothing to show. `paymentProof` produces the secret behind one output; with the payee's address, its holder reads that output's asset, value and memo from the chain.
 
 A proof opens one output and nothing else: not the spend's other outputs or inputs, not other payments by either party, and it neither spends the note nor shows when it is spent. The payee cannot forge one.
 
@@ -79,15 +104,16 @@ const proof = await wallet.paymentProof({
     recipient: paid.recipient,
     asset: paid.amount.asset,
     amount: paid.amount.amount, // circuit units
+    // memo: the transfer's `memo`, exactly as given, when it had one
 });
 // `proof` is plain JSON: send it to whoever asked.
 ```
 
-Every field of the target comes from the transfer's result. The secret is recomputed from the target, the wallet's key, and the spend's published nullifiers, so nothing has to be stored: a wallet restored elsewhere produces the same proof from the same target.
+Every field of the target but `memo` comes from the transfer's result. The secret is recomputed from the target, the wallet's key, and the spend's published nullifiers, so nothing but the memo has to be stored: a wallet restored elsewhere produces the same proof from the same target.
 
 | `paymentProof` rejects | When |
 |---|---|
-| `INVALID_ARGUMENT` | the transaction did not publish `commitment`, or the node holds no receipt for it; or the wallet's key with `recipient`, `asset`, and `amount` does not reproduce the output, because another wallet made it or it paid a different recipient, asset, or amount |
+| `INVALID_ARGUMENT` | the transaction did not publish `commitment`, or the node holds no receipt for it; or the wallet's key with `recipient`, `asset`, and `amount` does not reproduce the output, because another wallet made it, or it paid a different recipient, asset, or amount, or carried a different memo |
 | `UNSUPPORTED_OPERATION` | the chain layer lacks `fetchNotePayload` or `txReceiptLogs` — see [Optional reads](/guide/chain-adapter#optional-reads) |
 
 ### Verifying a proof
@@ -106,15 +132,17 @@ import { verifyPaymentProof } from "@lelantos-org/sdk/protocol";
 
 // `reader` is any chain layer that reads logs, such as a wallet's `chain`.
 const result = await verifyPaymentProof({ proof, recipient: payeeAddress, reader });
-if (result.ok) console.log(result.asset, result.value); // circuit units
+if (result.ok) console.log(result.asset, result.value, result.memo); // circuit units
 else console.log(result.reason);
 ```
+
+`result.memo` is the output's memo, absent when it has none.
 
 `recipient` is the exact address that was paid. A payee's other [addresses](/guide/addresses#one-account-many-addresses) do not verify: the proof binds one address, and nothing in it links that address to the rest of the account.
 
 | `reason` | Meaning |
 |---|---|
-| `malformed` | not a version-2 proof |
+| `malformed` | not a version-3 proof |
 | `wrong-chain` | made for another chain than the reader's |
 | `not-published` | the pool published no such commitment in that transaction, or the reader found no such transaction |
 | `wrong-ephemeral` | the secret is not that output's |

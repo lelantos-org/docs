@@ -79,7 +79,7 @@ The current `NotesFile` version is 3. Each stored note records `d`, the diversif
 
 ## Contents
 
-The notes file contains the commitments the wallet owns, their values, and the sync cursor. It does **not** contain `nsk` or nullifiers; nullifiers are computed in memory and never written.
+The notes file contains the commitments the wallet owns, their values, the [memos](/guide/transfer#memo) received with them as plain text, and the sync cursor. It does **not** contain `nsk` or nullifiers; nullifiers are computed in memory and never written.
 
 ::: danger The notes file is sensitive
 The file cannot be used to spend, but it links its holder to every commitment the wallet owns on chain. Encrypt it at rest.

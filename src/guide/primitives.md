@@ -42,7 +42,7 @@ A deposit has no proof and no output slots. Its fee is a second leaf next to the
 
 ## Output slot order
 
-`buildSpend` takes one `outputs` array with an entry per slot: `{ asset, value, recipient }`, where `recipient` is a decoded shielded address. The fee output's index must be random: a fee note always in the last slot would identify relayed transactions.
+`buildSpend` takes one `outputs` array with an entry per slot: `{ asset, value, recipient, memo? }`, where `recipient` is a decoded shielded address and `memo` is the 128-byte field `encodeMemo` from `@lelantos-org/sdk/primitives` builds from a text. The fee output's index must be random: a fee note always in the last slot would identify relayed transactions.
 
 Build the list, then shuffle it once:
 
@@ -73,7 +73,7 @@ The wallet does the same internally, and also records the positions of its own o
 
 ## Output randomness
 
-`buildSpend` and `buildDeposit` draw no randomness for an output. Both take `outgoingKey`, from `deriveOutgoingKey(nsk)` in `@lelantos-org/sdk/primitives`, and derive every output's commitment blinder, ECDH ephemeral, and clue blinder from it, the output's own fields, the recipient's address, and, in a spend, the spend's nullifiers. The sender can therefore recompute them later, which is what a [payment proof](/guide/transfer#proving-a-payment) does.
+`buildSpend` and `buildDeposit` draw no randomness for an output. Both take `outgoingKey`, from `deriveOutgoingKey(nsk)` in `@lelantos-org/sdk/primitives`, and derive every output's commitment blinder, ECDH ephemeral, and clue blinder from it, the output's own fields, the recipient's address, its memo, and, in a spend, the spend's nullifiers. The sender can therefore recompute them later, which is what a [payment proof](/guide/transfer#proving-a-payment) does.
 
 | Builder | `rho` of each output |
 |---|---|
