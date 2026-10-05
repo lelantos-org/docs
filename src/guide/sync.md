@@ -232,8 +232,8 @@ import {
 } from "@lelantos-org/sdk/primitives";
 import { FmdClient } from "@lelantos-org/sdk/services";
 
-const { P, J } = await cryptoContext();
-const viewingKey = decodeViewingKey(P, J, wallet.keys.viewingKey);
+const { P } = await cryptoContext();
+const viewingKey = decodeViewingKey(P, wallet.keys.viewingKey);
 
 // `epoch` is 0 until you rotate.
 const epoch = BigInt(myAppConfig.subscriptionEpoch ?? 0);

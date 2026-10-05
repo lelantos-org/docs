@@ -61,6 +61,10 @@ Sharing `recipientCommitment` with the payee reveals nothing new; the payee find
 
 A transfer is private to everyone but its two parties, so a sender in a dispute has nothing to show. `paymentProof` produces the secret behind one output; with the payee's address, its holder reads that output's asset and value from the chain.
 
+A proof opens one output and nothing else: not the spend's other outputs or inputs, not other payments by either party, and it neither spends the note nor shows when it is spent. The payee cannot forge one.
+
+### Making a proof
+
 ```ts twoslash
 // ---cut-start---
 import type { WalletApi } from "@lelantos-org/sdk";
@@ -72,9 +76,21 @@ const paid = await wallet.transfer({ asset: "USDC", amount: "25", recipient });
 const proof = await wallet.paymentProof({
     txHash: paid.txHash,
     commitment: paid.recipientCommitment,
+    recipient: paid.recipient,
+    asset: paid.amount.asset,
+    amount: paid.amount.amount, // circuit units
 });
 // `proof` is plain JSON: send it to whoever asked.
 ```
+
+Every field of the target comes from the transfer's result. The secret is recomputed from the target, the wallet's key, and the spend's published nullifiers, so nothing has to be stored: a wallet restored elsewhere produces the same proof from the same target.
+
+| `paymentProof` rejects | When |
+|---|---|
+| `INVALID_ARGUMENT` | the transaction did not publish `commitment`, or the node holds no receipt for it; or the wallet's key with `recipient`, `asset`, and `amount` does not reproduce the output, because another wallet made it or it paid a different recipient, asset, or amount |
+| `UNSUPPORTED_OPERATION` | the chain layer lacks `fetchNotePayload` or `txReceiptLogs` — see [Optional reads](/guide/chain-adapter#optional-reads) |
+
+### Verifying a proof
 
 The verifier needs no key, only the payee's address and an RPC:
 
@@ -94,18 +110,18 @@ if (result.ok) console.log(result.asset, result.value); // circuit units
 else console.log(result.reason);
 ```
 
+`recipient` is the exact address that was paid. A payee's other [addresses](/guide/addresses#one-account-many-addresses) do not verify: the proof binds one address, and nothing in it links that address to the rest of the account.
+
 | `reason` | Meaning |
 |---|---|
-| `malformed` | not a version-1 proof |
+| `malformed` | not a version-2 proof |
 | `wrong-chain` | made for another chain than the reader's |
-| `not-published` | the pool published no such commitment in that transaction |
+| `not-published` | the pool published no such commitment in that transaction, or the reader found no such transaction |
 | `wrong-ephemeral` | the secret is not that output's |
 | `not-for-recipient` | the output was not encrypted to this address |
+| `no-value` | the output carries value 0 or names asset 0; the payee's wallet discards such a note, so it credited nothing |
 | `commitment-mismatch` | it opens, but not to the note the pool committed to |
-
-A proof opens one output and nothing else: not the spend's other outputs or inputs, not other payments by either party, and it neither spends the note nor shows when it is spent. The payee cannot forge one.
-
-The secret is derived from the wallet's seed and the published output, so nothing has to be stored: a wallet restored elsewhere produces the same proof from `txHash` and `commitment`. For an output made by another wallet, or by an SDK that predates this derivation, `paymentProof` rejects `INVALID_ARGUMENT`.
+| `wrong-clue` | the published clue is not the one the output's secret gives for this address |
 
 ## Claim-link keys
 

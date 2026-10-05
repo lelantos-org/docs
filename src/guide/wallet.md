@@ -9,10 +9,10 @@
 | Chain layer | `privateKey`, `signer`, `provider` + `address`, `readOnly`, `reader`, `chain` | exactly one |
 | Extras | `prover`, `scanner`, `http`, `storage`, `shape`, `denominations`, `acceptRelayerFee`, `syncStrategy`, `wasm`, `runtime` | no |
 
-The wallet's viewing keys and bech32m address are derived from the shielded spending key (`nsk`).
+The wallet's viewing keys and bech32m [addresses](/guide/addresses) are derived from the shielded spending key (`nsk`).
 
 ::: warning Funds belong to `nsk`
-Notes can be spent only with the `nsk` they were shielded under. Each key source derives `nsk` deterministically; the same input always yields the same key and address. Back up the input (mnemonic, private key, or `nsk` itself).
+Notes can be spent only with the `nsk` they were shielded under. Each key source derives `nsk` deterministically; the same input always yields the same key and addresses. Back up the input (mnemonic, private key, or `nsk` itself).
 :::
 
 ## What `connect` does, in order

@@ -106,6 +106,8 @@ export class StaticNoteSource implements NoteSource {
 }
 ```
 
+Each row is a `ScanInput`: the wire `ciphertext`, the packed `epk` and `clueR` points as published with the note, and its `cm`, `leafIndex`, and `blockNumber`. The scanner keeps a note only when its `cm`, `epk`, and clue are the ones its plaintext determines, so pass all of them through unchanged.
+
 | Field | Meaning |
 |---|---|
 | `nextAfter` | cursor for the next page within the current sync; always past every returned row |

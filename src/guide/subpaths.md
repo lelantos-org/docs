@@ -12,7 +12,7 @@ Most applications import only from the root.
 | `@lelantos-org/sdk/advanced` | `createWallet`, `createWatchWallet`, `WalletConfig`; the `ChainReader` / `ChainAdapter` ports, the viem adapter and reader, signers, `supports*` guards; `Submitter` / `HttpRelayerSubmitter`; note stores and sources; tree and nullifier persistence; coin selectors; scanners; `hasTokenMeta`, `outAmount` | semver, integrator tier |
 | `@lelantos-org/sdk/prover` | `Prover`, `WasmProver`, `SnarkjsProver`, `WorkerProver`, `browserWorkerProver`; artifact resolution and caching; `configureProverThreads` | semver, integrator tier |
 | `@lelantos-org/sdk/protocol` | fees (`depositTotals`, `withdrawNet`, `withdrawNetFor`, `grossForNet`, `depositFeeAssetRefusal`), deposit pulls, denominations, units (`RAY`, `toCircuitUnits`, `toTokenUnitsAtRate`), swap sizing, circuit shapes, relayer wire types, bundle builders, Permit2 signing | semver, integrator tier |
-| `@lelantos-org/sdk/primitives` | hex, bytes, field, randomness; Poseidon and Jubjub; keys and addresses; note encryption; FMD | semver, integrator tier |
+| `@lelantos-org/sdk/primitives` | hex, bytes, field, randomness; Poseidon and Jubjub; keys, diversifiers and addresses; note encryption and output-secret derivation; FMD | semver, integrator tier |
 | `@lelantos-org/sdk/services` | `RelayerClient`, `DepositStream`, `FmdClient`, `fetchSwapQuote`, the shared HTTP client | semver, integrator tier |
 | `@lelantos-org/sdk/workers/prover` | the prover worker's entry module, for `new Worker(new URL(…))` | semver |
 | `@lelantos-org/sdk/workers/scanner` | the scanner worker's entry module | semver |

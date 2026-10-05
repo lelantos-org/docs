@@ -30,6 +30,7 @@ The pool hides which notes a transaction spends, who receives a transfer, and tr
 - **Keep the spend cooldown** (`selection.cooldownBlocks`, default 1) and use a chain adapter that implements `blockNumber`, which the cooldown requires. See [Spend cooldown](/guide/notes#spend-cooldown).
 - **Keep the default SFRT selector.** Largest-first selection creates a pattern that links spends. See [Pluggable interfaces](/guide/interfaces#custom-coin-selector).
 - **Use `recipientCommitment`**, not an output index, to identify the payee note; outputs are shuffled. See [Transfer](/guide/transfer#reading-the-result).
+- **Give each payer its own address** with `addressAt(index)`. Payers comparing addresses then cannot tell they pay the same account. See [Addresses](/guide/addresses#one-account-many-addresses).
 
 ### Detection and keys
 

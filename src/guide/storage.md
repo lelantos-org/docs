@@ -75,7 +75,7 @@ The SDK serializes its own reads and writes to the store, so `save()` is never c
 
 ## Schema version
 
-The current `NotesFile` version is 1, which uses 16-byte note ids. The SDK does not upgrade files: opening a wallet whose store holds another version rejects `WALLET_CONFIG`. Clear the store (or have `load()` return an empty version-1 file) and the next sync re-scans the feed.
+The current `NotesFile` version is 3. Each stored note records `d`, the diversifier of the address it was received at, and is spendable only under that address's `pk`. The SDK does not upgrade files: opening a wallet whose store holds another version rejects `WALLET_CONFIG`. Clear the store (or have `load()` return an empty version-3 file) and the next sync re-scans the feed.
 
 ## Contents
 

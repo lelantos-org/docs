@@ -9,11 +9,14 @@ Use cases include balance displays on devices that must not hold spending keys, 
 The spending key `nsk` derives every other key:
 
 ```
-nsk ─┬─ ivk ─┬─ pk    binds the note commitment
-     │       ├─ pk_d  ECDH target, decrypts incoming notes
-     │       └─ dk    FMD detection secret
+nsk ─┬─ ivk ─┬─ d     diversifier of each address, one per index
+     │       ├─ pk    binds the note commitment, per address
+     │       ├─ pk_d  ECDH target of incoming notes, per address
+     │       └─ dk    FMD detection secret, one for the account
      └─ nk           derives nullifiers
 ```
+
+`ivk` covers every [address](/guide/addresses#one-account-many-addresses) of the account, so a viewing key reads notes sent to all of them.
 
 | Key | Reads incoming notes | Knows which notes are spent | Can spend |
 |---|---|---|---|
@@ -65,7 +68,8 @@ await using watch = await connectWatch({
 
 await watch.sync();
 
-watch.address; // the account being watched, derived from the key
+watch.address; // the watched account's address at index 0, derived from the key
+await watch.addressAt(3); // any other index; the same address the spending wallet returns
 watch.spentKnown; // true for a full viewing key, false for an incoming one
 watch.keys.tier; // "full" | "incoming"
 
@@ -101,7 +105,9 @@ declare const receipt: { commitment: string; txHash: string };
 const paid = await watch.confirmCommitment(receipt.commitment, receipt.txHash);
 ```
 
-`confirmCommitment` reads the transaction's receipt over the wallet's own RPC and resolves `true` only if the pool published that commitment in it. The note gives the asset and value; this gives its existence. A deposit's escrow resolves `false` until flushed, since it can still be cancelled. Without `rpcUrl` or `reader` it rejects `UNSUPPORTED_OPERATION`.
+`confirmCommitment` reads the transaction's receipt over the wallet's own RPC and resolves `true` only if the pool published that commitment in it. The note gives the asset and value; this gives its existence. A deposit's escrow resolves `false` until flushed, since it can still be cancelled.
+
+It never resolves `false` for a transaction it could not read. With the default reader, a hash the node holds no receipt for is waited on for 15 seconds and then rejects `TX_MINING`, which is retryable. Without `rpcUrl` or `reader` it rejects `UNSUPPORTED_OPERATION`.
 
 ## Differences from a spending wallet
 

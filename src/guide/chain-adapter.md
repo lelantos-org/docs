@@ -72,7 +72,7 @@ When an optional member is missing, the dependent feature is unavailable; nothin
 | `nativeAdapterAddress` | no native deposits or withdrawals |
 | `tokenBalanceOf`, `nativeBalance`, `tokenAllowance`, `permit2Allowance` | `quoteDeposit` reports `balance` / `allowance` as `undefined` |
 | `getEscrowed`, `fetchDepositEscrowed`, `cancelDelay` | no cancel by `depositId`; `cancellableAtBlock` uses a conservative bound |
-| `waitTxReceipt`, `txReceiptLogs` | no confirmation wait after broadcast; results carry no `operation`; `confirmCommitment` rejects `UNSUPPORTED_OPERATION` |
+| `waitTxReceipt`, `txReceiptLogs` | no confirmation wait after broadcast; results carry no `operation`; `confirmCommitment` and `paymentProof` reject `UNSUPPORTED_OPERATION` |
 | `fetchNotePayload` | `paymentProof` rejects `UNSUPPORTED_OPERATION`, and the layer cannot serve `verifyPaymentProof` |
 
 ## Implementing an adapter

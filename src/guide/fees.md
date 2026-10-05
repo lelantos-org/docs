@@ -180,7 +180,7 @@ When `feeAsset` differs from `asset`, the deposit makes **two token transfers**:
 
 - The signature strategy signs both amounts in one Permit2 batch permit.
 - The allowance strategy is used only when an active Permit2 allowance covers both tokens.
-- If the relayer charges nothing, the fee note has zero value in the deposited asset, and the deposit makes one transfer regardless of `feeAsset`.
+- If the relayer charges nothing, the fee note has zero value and names asset 0, and the deposit makes one transfer regardless of `feeAsset`.
 
 Cancelling such a deposit refunds each token separately: `refunded` in the deposited asset and `feeRefunded` in the fee asset. See [Cancelling a deposit](/guide/deposit#cancelling-a-deposit).
 

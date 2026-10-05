@@ -7,15 +7,18 @@ Terms used throughout this guide and the [API reference](/reference/).
 | Term | Definition |
 |---|---|
 | `nsk` | Spending key. A field element from which every other key is derived. Holding `nsk` is required to spend. See [Connecting a wallet](/guide/wallet). |
-| `ivk` | Incoming viewing key. Derived from `nsk`; decrypts notes sent to the account. |
+| `ivk` | Incoming viewing key. Derived from `nsk`; decrypts notes sent to any address of the account. |
 | `nk` | Nullifier key. Derived from `nsk`; computes nullifiers. Included in a full viewing key. |
-| `pk` | Public key. Binds a note commitment to its owner. |
-| `pk_d` | Diversified public key. The ECDH target that notes are encrypted to. |
-| `ck` | Clue key. Lets a sender attach an FMD clue to a note. |
-| `dk` | Detection key secret. Tests FMD clues; can be delegated to a server. |
+| `d` | Diversifier. 16 bytes that select one address of an account. |
+| Diversifier index | Integer in `[0, 2^32)` naming one address of an account; `addressAt(index)`. Index 0 is `wallet.address`. |
+| `pk` | Public key of one address. Binds a note commitment to its owner. |
+| `pk_d` | Diversified public key of one address. The ECDH target that notes are encrypted to. |
+| `ck_d` | Clue key of one address. Lets a sender attach an FMD clue to a note. |
+| `dk` | Detection key secret. Tests FMD clues for every address of the account; can be delegated to a server. |
+| Outgoing key | Derived from `nsk`; seeds the randomness of every output the account sends. With a payee's address, opens what the account sent to that payee. See [Output randomness](/guide/primitives#output-randomness). |
 | Incoming viewing key (IVK) | Encoded `ivk` (`lelantosivk1…`). Reads incoming notes; cannot tell which are spent. See [Watch-only wallets](/guide/watch-only). |
 | Full viewing key (FVK) | An incoming viewing key plus `nk` (`lelantosfvk1…`). Reads incoming notes and their spent status. |
-| Shielded address | Bech32m string with prefix `lelantos` encoding `pk_d`, `pk`, and `ck`. See [Addresses](/guide/addresses). |
+| Shielded address | Bech32m string with prefix `lelantos` encoding `d`, `pk_d`, `pk`, and `ck_d`. An account has one per diversifier index. See [Addresses](/guide/addresses). |
 
 ## Pool and transactions
 

@@ -164,7 +164,7 @@ The relayer's fee for step 4 is part of the deposit. Every deposit creates two l
 - the depositor's note;
 - a fee note addressed to the relayer.
 
-The fee note can use a different registered asset (`feeAsset`). The request records it as `feeAssetId`, and the pool transfers both tokens from the payer in the same transaction. The protocol fee is always in the deposited asset. If the relayer charges nothing, the fee leaf is a zero-value note to the depositor and `feeAssetId` is `0`.
+The fee note can use a different registered asset (`feeAsset`). The request records it as `feeAssetId`, and the pool transfers both tokens from the payer in the same transaction. The protocol fee is always in the deposited asset. If the relayer charges nothing, the fee leaf is a zero-value note sealed to an address drawn for it, which no one holds, and `feeAssetId` is `0`.
 
 ## Spend flow
 
