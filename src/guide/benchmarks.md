@@ -4,8 +4,8 @@ Proof generation is the most expensive client-side operation. These measurements
 
 | Parameter | Value |
 |---|---|
-| Date | 2026-09-12 |
-| Circuit | `TRANSACT_4X6`, Merkle depth 11, ~48 MB zkey |
+| Date | 2026-10-07 |
+| Circuit | `TRANSACT_4X6`, Merkle depth 11, ~33 MB zkey |
 | Network | HTTPS over LAN |
 | Method | one warm-up run, then median of 5 timed runs from `lelantos:prover:wasm` logs |
 
@@ -13,9 +13,9 @@ Proof generation is the most expensive client-side operation. These measurements
 
 | Device | Threads | Total | Witness | Groth16 | Prepare |
 |---|---|---|---|---|---|
-| macOS&nbsp;·&nbsp;Chrome&nbsp;150 | 16 | **599&nbsp;ms** | 213&nbsp;ms | 385&nbsp;ms | 248&nbsp;ms · warm |
-| iPhone&nbsp;·&nbsp;Safari&nbsp;18.5 | 4 | 2591&nbsp;ms | 227&nbsp;ms | 2363&nbsp;ms | 6433&nbsp;ms · cold |
-| macOS&nbsp;·&nbsp;Chrome&nbsp;150 | 1 | 3812&nbsp;ms | 203&nbsp;ms | 3609&nbsp;ms | 164&nbsp;ms · warm |
+| macOS&nbsp;·&nbsp;Chrome&nbsp;154 | 16 | **233&nbsp;ms** | 76&nbsp;ms | 156&nbsp;ms | 292&nbsp;ms · cold |
+| iPhone&nbsp;·&nbsp;Safari&nbsp;18.5 | 4 | 1021&nbsp;ms | 75&nbsp;ms | 946&nbsp;ms | 3039&nbsp;ms · cold |
+| iPhone&nbsp;·&nbsp;Safari&nbsp;18.5 | 4 | 1008&nbsp;ms | 78&nbsp;ms | 931&nbsp;ms | 173&nbsp;ms · warm |
 
 - **Threads** is the size of the thread pool actually created.
 - **Prepare** is artifact download and parsing, measured outside the proof timing. *Warm* means the zkey was already in the Cache API; *cold* means it was downloaded.
@@ -23,10 +23,10 @@ Proof generation is the most expensive client-side operation. These measurements
 
 Observations:
 
-- Witness generation is single-threaded and takes 203–227 ms on all devices.
-- Groth16 is 64% of total time at 16 threads, 91% at 4 threads, and 95% at 1 thread. Going from 1 to 16 threads speeds up Groth16 by 5.1× and the total by 6.4×.
-- The single-threaded row reflects a page without cross-origin isolation. In that configuration the SDK uses snarkjs instead.
-- On the iPhone, cold artifact preparation (6.4 s) exceeds proving time. It occurs once per session; `wallet.warmProver()` (or `prover: { warmup: "eager" }`) and the Cache API move it out of the first transaction. Over the public internet, download time depends on bandwidth.
+- Witness generation is single-threaded and takes 75–78 ms on both devices.
+- Groth16 is 67% of total time at 16 threads and 93% at 4 threads.
+- A page without cross-origin isolation gets no thread pool, and the SDK uses snarkjs instead. That configuration is not measured here.
+- On the iPhone, cold artifact preparation (3.0 s) exceeds proving time; with the artifacts in the Cache API it takes 173 ms. It occurs once per session; `wallet.warmProver()` (or `prover: { warmup: "eager" }`) and the Cache API move it out of the first transaction. Over the public internet, download time depends on bandwidth.
 
 ## Native prover (relayer)
 

@@ -188,7 +188,7 @@ const wallet = await connect({
     },
 });
 
-// Start the ~50 MB artifact download now, for example while the user fills a form.
+// Start the ~37 MB artifact download now, for example while the user fills a form.
 await wallet.warmProver();
 ```
 

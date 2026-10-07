@@ -73,7 +73,7 @@ Terms used throughout this guide and the [API reference](/reference/).
 | `nIn`, `nOut` | Input and output counts of the circuit shape (4 and 6). |
 | Groth16 | The zero-knowledge proof system used for spends. |
 | Witness | The private inputs to a proof, computed before proving. |
-| zkey | The proving key file (~48 MB for 4x6). |
+| zkey | The proving key file (~33 MB for 4x6). |
 | Prover artifacts | The circuit `.wasm` and the `.zkey` needed to prove. |
 | Output shuffling | Randomizing the order of output notes so the payee and fee outputs cannot be identified by position. |
 

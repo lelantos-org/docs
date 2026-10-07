@@ -97,7 +97,7 @@ Nothing is downloaded at `connect()`. With the default `warmup: "lazy"`, artifac
 
 ### Circuit shape
 
-The SDK ships one circuit, `TRANSACT_4X6`: four inputs and six outputs, with a ~48 MB zkey and a ~4 MB witness circuit. Six outputs fit the payment, change, a relayer fee in a second asset, and that asset's change in one transaction.
+The SDK ships one circuit, `TRANSACT_4X6`: four inputs and six outputs, with a ~33 MB zkey and a ~4 MB witness circuit. Six outputs fit the payment, change, a relayer fee in a second asset, and that asset's change in one transaction.
 
 ::: warning The pool's verifier must match the circuit
 A pool deployed with a verifier for a different shape cannot be used. The SDK cannot detect the verifier at `connect()`; the mismatch appears as a rejected proof at submission.
@@ -231,7 +231,7 @@ import { clearArtifactCache, configureArtifactCache } from "@lelantos-org/sdk/pr
 // store the origin owns, so a persisted note or tree store benefits too.
 await requestPersistentStorage();
 
-await clearArtifactCache(); // reclaim ~90 MB, or force a re-download
+await clearArtifactCache(); // reclaim ~37 MB, or force a re-download
 configureArtifactCache(false); // opt out entirely
 configureArtifactCache(myCache); // or store them in IndexedDB / OPFS / disk
 ```
