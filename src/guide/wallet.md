@@ -37,7 +37,7 @@ Anything `connect` built before a failure is disposed. A `Prover` or `Scanner` i
 | `reader` — a pre-built `ChainReader` | no | no |
 | `chain` — a pre-built `ChainAdapter` | yes | no |
 
-Only deposits (and cancelling one, and allowance setup) need an EOA. Transfers, withdrawals, and swaps are authorized by the proof and broadcast by the relayer, so a `readOnly` wallet spends normally; `wallet.capabilities.deposit` is `false` for it.
+Only deposits (and cancelling one, and allowance setup) need an EOA. Transfers, withdrawals, swaps, and handle registrations are authorized by the proof and broadcast by the relayer, so a `readOnly` wallet spends normally; `wallet.capabilities.deposit` is `false` for it.
 
 ### `privateKey`
 
@@ -165,6 +165,7 @@ await connect({ network: "base", rpcUrl, mnemonic, privateKey, readOnly: true })
 | `nativeDeposit` | the adapter can deposit through `NativeAdapter` | `deposit({ native: true })` rejects `UNSUPPORTED_OPERATION` |
 | `nativeWithdraw` | a `NativeAdapter` address is known | `withdraw({ native: true })` rejects `UNSUPPORTED_OPERATION` |
 | `swap` | `prove`, a submitter that relays swaps, and a quoter URL | `quoteSwap` and `swap` reject `UNSUPPORTED_OPERATION` |
+| `registerName` | `prove`, a submitter that relays generic executions, a `nameRegistrarAddress`, and a chain layer that reads the registrar | `registerName` rejects `UNSUPPORTED_OPERATION` |
 
 ## Prover
 

@@ -35,7 +35,10 @@ Terms used throughout this guide and the [API reference](/reference/).
 | Withdraw (unshield) | Moving value from the pool to a public address. |
 | Swap | Atomic unshield, trade, and re-shield. See [Swap](/guide/swap). |
 | Credit note | The note created by a swap's re-shield leg when the trade fills; `quote.credit` is its value. |
-| Refund note | The note a swap re-shields in the input asset when the trade fails or passes its deadline. |
+| Refund note | The note a swap re-shields in the input asset when the trade fails or passes its deadline. A handle registration has one too. |
+| Handle | A short name in the `LelantosNameRegistrar` that publishes one shielded address, served as an ENS subname of each parent the deployment holds. See [Names](/guide/names). |
+| Published address | The account's address at `PUBLISHED_DIVERSIFIER_INDEX`, the one `registerName` puts under its handle. |
+| Controller key | The secp256k1 key, derived from `nsk`, whose signature changes a handle's published value. |
 | Escrow | Holding state of a mined deposit before the relayer adds it to the tree; `DepositResult.escrow` identifies it. |
 | Flush | The relayer's `flushBatch` transaction, which adds escrowed deposits to the tree. |
 | `publicIn` | A deposit's public amount, in circuit units. |

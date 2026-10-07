@@ -42,3 +42,5 @@ unshields
 viem
 vitesse
 wordmark
+subname
+subnames

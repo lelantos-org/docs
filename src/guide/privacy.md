@@ -11,6 +11,8 @@ The pool hides which notes a transaction spends, who receives a transfer, and tr
 | That a shielded transfer occurred, and when | everyone (on chain) | [How it fits together](/guide/system#visibility-by-party) |
 | Submitter IP address and timing | relayer | [How it fits together](/guide/system#spend-flow) |
 | Requested token pair and size | metaquoter | [Swap](/guide/swap) |
+| A handle, the address published under it, and when it was registered | everyone (on chain) | [Names](/guide/names) |
+| Which handle is looked up, and when | the RPC serving the lookup | [Names](/guide/names#looking-a-handle-up) |
 | RPC reads, including your deposit account | your RPC provider | [Networks](/guide/networks#rpc-endpoint) |
 | Incoming notes (with `matches` strategy) | FMD server | [Syncing](/guide/sync#sync-strategies) |
 
@@ -31,6 +33,9 @@ The pool hides which notes a transaction spends, who receives a transfer, and tr
 - **Keep the default SFRT selector.** Largest-first selection creates a pattern that links spends. See [Pluggable interfaces](/guide/interfaces#custom-coin-selector).
 - **Use `recipientCommitment`**, not an output index, to identify the payee note; outputs are shuffled. See [Transfer](/guide/transfer#reading-the-result).
 - **Give each payer its own address** with `addressAt(index)`. Payers comparing addresses then cannot tell they pay the same account. See [Addresses](/guide/addresses#one-account-many-addresses).
+- **Publish only the reserved address under a handle**, which `registerName` does, and hand it out nowhere else. A registration re-shields its change in the same public transaction as that address, so the change is kept to one unit.
+- **Look a handle up once, when a contact is saved**, not before each payment. A lookup followed by a spend lets whoever served the lookup pair them. See [Names](/guide/names#looking-a-handle-up).
+- **Accept only names under the parents your deployment lists.** `lelantos.eth` is not one of them. See [Names](/guide/names#which-names-are-genuine).
 
 ### Detection and keys
 
@@ -38,6 +43,7 @@ The pool hides which notes a transaction spends, who receives a transfer, and tr
 - **In a watch-only wallet, leave `allowDetectionKeyRelease` unset.** The decision belongs to the account owner. See [Watch-only wallets](/guide/watch-only#differences-from-a-spending-wallet).
 - **Treat viewing keys as permanent disclosure.** They cannot be revoked. See [Watch-only wallets](/guide/watch-only).
 - **Treat a payment proof as disclosure of one payment.** With the payee's address, its holder reads that output's asset, value and memo; it reveals nothing else. Send it only to whoever should learn it. See [Proving a payment](/guide/transfer#proving-a-payment).
+- **Treat a handle's controller key as the handle.** Its holder can publish another address under it. Clearing a record stops it resolving but does not erase it from chain history. See [Names](/guide/names#the-controller-key).
 - **Treat a claim-link key as the funds.** Whoever holds it can spend what the link holds. See [Claim-link keys](/guide/transfer#claim-link-keys).
 - **Derive subscription tokens from `ivk`**, and store the epoch after rotating. See [Rotating the token](/guide/sync#rotating-the-token).
 

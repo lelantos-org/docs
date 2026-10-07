@@ -40,6 +40,7 @@ export const guideSidebar: DefaultTheme.SidebarItem[] = [
             { text: "Transfer", link: "/guide/transfer" },
             { text: "Withdraw", link: "/guide/withdraw" },
             { text: "Swap", link: "/guide/swap" },
+            { text: "Names", link: "/guide/names" },
             { text: "Fees", link: "/guide/fees" },
         ],
     },

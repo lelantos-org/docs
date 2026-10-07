@@ -76,6 +76,8 @@ const wallet = await connect({ network: myChain, rpcUrl, privateKey });
 | `rpcUrl` | `rpcUrl` must be passed to `connect()` |
 | `nativeAdapterAddress` | `capabilities.nativeDeposit` and `nativeWithdraw` are `false` |
 | `swapWrapperAddress` | read from the relayer's `/chains` |
+| `genericCallWrapperAddress` | read from the relayer's `/chains`; with neither, `registerName` rejects `UNSUPPORTED_OPERATION` |
+| `nameRegistrarAddress` | `capabilities.registerName` is `false` |
 | `permit2Address` | the canonical `0x000000000022D473030F116dDEE9F6B43aC78BA3` |
 | `submitTimeoutMs` | 30,000 ms per submit attempt; `http.submitTimeoutMs` overrides it |
 

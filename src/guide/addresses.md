@@ -43,6 +43,8 @@ const invoice = await wallet.addressAt(7);
 
 Give each payer its own index, and payers cannot recognise a shared payee by comparing addresses.
 
+The last index, `PUBLISHED_DIVERSIFIER_INDEX`, is reserved for the address an account publishes under its [handle](/guide/names#the-published-address); `wallet.publishedAddress()` returns it. Do not hand it out for anything else.
+
 ## Deriving an address
 
 Every address is derived deterministically from `nsk`, through `ivk`. Every [key source](/guide/wallet#key-source-and-chain-layer) yields the same addresses for the same input.

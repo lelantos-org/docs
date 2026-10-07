@@ -91,9 +91,9 @@ This page shows which component talks to which, what each request contains, and 
 | Party | SDK entry point | Requests |
 |---|---|---|
 | **fmd-webserver** | `FmdClient`, `NoteSource` | encrypted notes, commitment chunks, nullifier chunks, sync positions |
-| **relayer** | `RelayerClient`, `Submitter`, `DepositStream` | chain registry, fee estimates, swap wrapper address, spend submission, deposit flush events |
+| **relayer** | `RelayerClient`, `Submitter`, `DepositStream` | chain registry, fee estimates, swap wrapper address, spend, swap and generic-execution submission, deposit flush events |
 | **metaquoter** | `quoteSwap`, `fetchSwapQuote` | swap route and `minOut` |
-| **EVM chain** | `ChainAdapter` | asset registry, fee rates, deposit broadcast, escrow state |
+| **EVM chain** | `ChainAdapter` | asset registry, fee rates, deposit broadcast, escrow state, handle records |
 
 The deployment also runs an explorer indexer, a risk-screening API, and a price feed. The SDK does not contact them.
 
@@ -224,9 +224,10 @@ The relayer and the FMD server are defaults, not requirements. `Submitter` and `
 | **fmd-webserver** | that a client fetched a page of the public feed | which notes belong to the wallet (with the default `full` strategy) |
 | **relayer** | IP address, submission time, its fee | spent notes, payee, amount |
 | **metaquoter** | the token pair and size of a requested route | the requester's identity, and whether the swap is executed |
-| **the chain** | deposit payer and amount; withdrawal recipient and amount | the contents of shielded transfers, other than that they occurred |
+| **the chain** | deposit payer and amount; withdrawal recipient and amount; a handle and the address published under it | the contents of shielded transfers, other than that they occurred; who registered a handle |
+| **your RPC provider** | which handle a client looks up, and when | which payment, if any, follows a lookup, unless it also serves the relayer |
 
-Only deposits and withdrawals are publicly visible. Shielded transfers are not.
+Deposits, withdrawals and handle registrations are publicly visible. Shielded transfers are not.
 
 ## What each service can and cannot do
 
@@ -234,7 +235,7 @@ No service holds a key, so none can spend. What each can still do, and what the 
 
 | Service | Cannot | Can | Check |
 |---|---|---|---|
-| **relayer** | change the recipient, the amount or any output: the proof binds them | quote any fee; refuse to relay | `maxFee` on a spend, `acceptRelayerFee` on the wallet — [Fees](/guide/fees#limiting-the-relayer-fee) |
+| **relayer** | change the recipient, the amount or any output, or the label, address or controller of a handle registration: the proof binds them | quote any fee; refuse to relay; see a registration's label before it lands | `maxFee` on a spend, `acceptRelayerFee` on the wallet — [Fees](/guide/fees#limiting-the-relayer-fee) |
 | **fmd-webserver** | make a spend land: a proof against a tree the pool does not hold is rejected on chain | withhold a note; serve a well-formed note the pool never inserted | `confirmCommitment` before crediting a payment — [Watch-only wallets](/guide/watch-only#confirming-a-payment-against-the-pool) |
 | **artifact host** | — | serve another proving key, whose proofs can leak the witness | digest pinning — [Browser usage](/guide/browser#pinning-the-artifacts) |
 

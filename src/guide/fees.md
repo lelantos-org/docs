@@ -87,6 +87,7 @@ if (!quote.charged) {
 | `"withdraw"` | spend estimate; `{ native: true }` prices the unwrap path |
 | `"swap"` | swap estimate; gas covers both legs and the trade |
 | `"deposit"` | the relayer's later `flushBatch`; `balance` and `affordable` are `undefined`, because a deposit's fee is funded from the public wallet |
+| `"registerName"` | a [handle registration](/guide/names#registering): the wrapper's gas plus the gas its calls are forwarded |
 
 | `FeeOption` field | Meaning |
 |---|---|
